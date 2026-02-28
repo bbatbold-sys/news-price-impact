@@ -1,0 +1,9 @@
+requests
+pandas
+openpyxl
+vaderSentiment
+xgboost
+scikit-learn
+matplotlib
+seaborn
+numpy

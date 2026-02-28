@@ -1,0 +1,17 @@
+# Data files (too large for git)
+*.csv
+*.json
+*.xlsx
+*.xls
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
