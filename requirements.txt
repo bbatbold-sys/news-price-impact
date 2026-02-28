@@ -7,3 +7,6 @@ scikit-learn
 matplotlib
 seaborn
 numpy
+joblib
+transformers
+torch

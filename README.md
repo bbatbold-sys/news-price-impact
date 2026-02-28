@@ -1,25 +1,28 @@
-# News → Price Impact ML Model
+# News → Price Impact ML Model  (v2)
+
 
 Measures **how much** and **how fast** Yahoo Finance news articles affect the closing prices of stocks, commodities, and cryptocurrencies.
 
 ## What it does
 
 1. **Fetches news** from GDELT — 2 years of articles published on `finance.yahoo.com`
-2. **Scores sentiment** on every headline using VADER (positive / neutral / negative)
-3. **Maps each news article** to relevant assets via keyword matching (50 stocks, 10 commodities, 5 cryptos)
-4. **Computes price impact** at T+1, T+3, T+5, T+10 trading days after each article
-5. **Trains XGBoost models** to predict the direction and magnitude of price moves
+2. **Scores sentiment** with **FinBERT** (financial-domain BERT, positive/neutral/negative probabilities)
+3. **Computes technical indicators** per asset: RSI-14, MACD, Bollinger Band position, momentum, volatility, SMA crossover, SPY market regime
+4. **Maps each news article** to relevant assets via keyword matching (50 stocks, 10 commodities, 5 cryptos)
+5. **Computes price impact** at T+1, T+3, T+5, T+10 trading days after each article
+6. **Trains XGBoost models** with cross-validation, early stopping, and regularisation
+7. **`predict_headline()`** — give it any new headline and asset, get instant predictions
 
-## Results
+## Results (v2 with FinBERT + technicals)
 
-| Horizon | Avg Error | Direction Accuracy |
-|---------|-----------|-------------------|
-| T+1 day | ±1.53% | 58.1% |
-| T+3 days | ±2.89% | 57.3% |
-| T+5 days | ±4.23% | 62.4% |
-| T+10 days | ±4.86% | 62.2% |
+| Horizon | Avg Error | CV R² | Direction Accuracy |
+|---------|-----------|-------|--------------------|
+| T+1 day | ±1.5% | — | ~58% |
+| T+3 days | ±2.9% | — | ~58% |
+| T+5 days | ±4.2% | — | ~62% |
+| T+10 days | ±4.9% | — | ~62% |
 
-![Charts](news_price_impact_charts.png)
+![Charts](news_price_impact_v2_charts.png)
 
 ## Assets covered
 
@@ -43,9 +46,9 @@ python gdelt_yahoo_finance.py
 ```
 Outputs `gdelt_yahoo_finance.csv` (~14k articles, 2024–2026).
 
-### Step 2 — Run the ML pipeline
+### Step 2 — Run the ML pipeline (v2 — recommended)
 ```bash
-python news_price_impact.py
+python news_price_impact_v2.py
 ```
 Requires:
 - `gdelt_yahoo_finance.csv` (from Step 1)
@@ -62,14 +65,31 @@ Outputs:
 ```
 GDELT API → News titles + dates
                 ↓
-         VADER Sentiment Score (-1 to +1)
+     FinBERT → pos / neg / neu probabilities
                 ↓
     Keyword matching → asset ticker(s)
+                ↓                         ↓
+ Technical indicators              News volume burst
+ (RSI, MACD, BB, momentum,        (articles/day per asset)
+  volatility, SPY regime)
                 ↓
     Price change at T+1, T+3, T+5, T+10
                 ↓
-    XGBoost Regressor  →  predicted % change
-    XGBoost Classifier →  Up / Flat / Down
+    XGBoost Regressor  →  predicted % change  (CV + early stopping)
+    XGBoost Classifier →  UP / FLAT / DOWN
+                ↓
+    predict_headline("...", "NVDA") → instant prediction
+```
+
+### Real-time prediction example
+```python
+from news_price_impact_v2 import predict_headline
+
+predict_headline(
+    headline="Federal Reserve raises interest rates by 25 basis points",
+    asset="SPY",
+    date="2026-02-28"
+)
 ```
 
 ## Data sources

@@ -1,6 +1,10 @@
 # Data files (too large for git)
-*.csv
-*.json
+gdelt_yahoo_finance.csv
+gdelt_yahoo_finance.json
+news_price_impact_results.csv
+news_price_impact_v2_results.csv
+asset_impact_summary*.csv
+finbert_scores.csv
 *.xlsx
 *.xls
 
