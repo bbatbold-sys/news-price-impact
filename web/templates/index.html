@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>News Impact Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --up:       #3fb950;
+      --down:     #f85149;
+      --flat:     #8b949e;
+      --positive: #1f6feb;
+      --negative: #b91c1c;
+    }
+    body           { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
+    .navbar        { background: var(--surface) !important; border-bottom: 1px solid var(--border); }
+    .card          { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+    .card-header   { background: transparent; border-bottom: 1px solid var(--border); font-weight: 600; }
+    .table         { color: var(--text); }
+    .table th      { color: var(--muted); font-size: .75rem; text-transform: uppercase; border-color: var(--border); font-weight: 500; }
+    .table td      { border-color: var(--border); vertical-align: middle; font-size: .85rem; }
+    .table tbody tr:hover { background: rgba(255,255,255,.03); }
+    .badge-up      { background: rgba(63,185,80,.15); color: var(--up);   border: 1px solid rgba(63,185,80,.3); }
+    .badge-down    { background: rgba(248,81,73,.15);  color: var(--down); border: 1px solid rgba(248,81,73,.3); }
+    .badge-flat    { background: rgba(139,148,158,.15);color: var(--flat); border: 1px solid rgba(139,148,158,.3); }
+    .badge-pos     { background: rgba(31,111,235,.15); color: #58a6ff; }
+    .badge-neg     { background: rgba(185,28,28,.15);  color: #ffa198; }
+    .badge-neu     { background: rgba(139,148,158,.15);color: var(--muted); }
+    .conf-bar-wrap { background: var(--border); border-radius: 4px; height: 6px; width: 80px; overflow: hidden; }
+    .conf-bar      { height: 100%; border-radius: 4px; transition: width .4s; }
+    .ticker        { font-family: monospace; font-weight: 700; font-size: .9rem; color: #58a6ff; }
+    .headline-cell { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: .8rem; }
+    .react-time    { font-size: .8rem; color: #e3b341; font-weight: 600; }
+    .pulse         { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .section-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 8px; }
+    .news-item     { border-bottom: 1px solid var(--border); padding: 10px 0; }
+    .news-item:last-child { border-bottom: none; }
+    .news-headline { font-size: .82rem; margin-bottom: 4px; }
+    .stat-box      { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; }
+    .stat-val      { font-size: 1.6rem; font-weight: 700; }
+    .live-dot      { width:8px; height:8px; background:var(--up); border-radius:50%; display:inline-block; margin-right:6px; }
+    #last-update   { font-size:.75rem; color: var(--muted); }
+    .pred-return   { font-family: monospace; font-size: .82rem; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark px-4 py-2">
+  <span class="navbar-brand fw-bold fs-5">
+    <i class="bi bi-activity text-success me-2"></i>News Impact Dashboard
+  </span>
+  <div class="d-flex align-items-center gap-3">
+    <span><span class="live-dot pulse"></span><small>LIVE</small></span>
+    <span id="last-update">Updating…</span>
+    <span class="badge bg-secondary">Auto-refresh 30s</span>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 py-3">
+
+  <!-- Stats row -->
+  <div class="row g-3 mb-4" id="stats-row">
+    <div class="col-6 col-md-3">
+      <div class="stat-box">
+        <div class="section-title">UP signals</div>
+        <div class="stat-val text-success" id="cnt-up">—</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box">
+        <div class="section-title">DOWN signals</div>
+        <div class="stat-val text-danger" id="cnt-down">—</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box">
+        <div class="section-title">Assets covered</div>
+        <div class="stat-val" id="cnt-total">—</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box">
+        <div class="section-title">News processed</div>
+        <div class="stat-val" id="cnt-news">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Main table -->
+    <div class="col-lg-8">
+
+      <!-- Manual predict box -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <i class="bi bi-lightning-charge-fill text-warning me-2"></i>Predict any headline
+        </div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <input id="pred-headline" class="form-control form-control-sm bg-dark text-light border-secondary"
+                     placeholder="Paste a news headline…">
+            </div>
+            <div class="col-md-3">
+              <select id="pred-asset" class="form-select form-select-sm bg-dark text-light border-secondary">
+                {% for cls, assets in all_assets.items() %}
+                  <optgroup label="{{ cls | upper }}">
+                    {% for a in assets %}
+                      <option value="{{ a }}">{{ a }} — {{ asset_names.get(a, a) }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-sm btn-success w-100" onclick="runPredict()">
+                <i class="bi bi-cpu me-1"></i>Run
+              </button>
+            </div>
+            <div class="col-md-2" id="pred-result-react"></div>
+          </div>
+          <div id="pred-result" class="mt-2"></div>
+        </div>
+      </div>
+
+      <!-- Signals tables by class -->
+      {% for cls, assets in all_assets.items() %}
+      <div class="card mb-3">
+        <div class="card-header d-flex align-items-center gap-2">
+          {% if cls == 'stock' %}<i class="bi bi-graph-up text-info"></i>
+          {% elif cls == 'crypto' %}<i class="bi bi-currency-bitcoin text-warning"></i>
+          {% else %}<i class="bi bi-basket text-success"></i>{% endif %}
+          {{ cls | capitalize }}s
+          <span class="ms-auto badge bg-secondary">{{ assets | length }}</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0" id="table-{{ cls }}">
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Signal T+3</th>
+                  <th>Confidence</th>
+                  <th>Return est.</th>
+                  <th>Sentiment</th>
+                  <th>React in</th>
+                  <th>Latest headline</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-{{ cls }}">
+                {% for a in assets %}
+                <tr id="row-{{ a | replace('=','-') | replace('.','-') }}">
+                  <td>
+                    <span class="ticker">{{ a }}</span><br>
+                    <small class="text-muted">{{ asset_names.get(a, '') }}</small>
+                  </td>
+                  <td colspan="7" class="text-muted fst-italic small">Waiting for news…</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- News feed -->
+    <div class="col-lg-4">
+      <div class="card" style="position:sticky;top:10px">
+        <div class="card-header">
+          <i class="bi bi-newspaper me-2"></i>Live News Feed
+        </div>
+        <div class="card-body p-2" id="news-feed" style="max-height:85vh;overflow-y:auto;">
+          <div class="text-muted text-center py-4">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const dirIcon  = {UP:'<i class="bi bi-arrow-up-circle-fill"></i>', DOWN:'<i class="bi bi-arrow-down-circle-fill"></i>', FLAT:'<i class="bi bi-dash-circle-fill"></i>'};
+const dirClass = {UP:'badge-up', DOWN:'badge-down', FLAT:'badge-flat'};
+const confColor = c => c >= .65 ? '#3fb950' : c >= .50 ? '#e3b341' : '#8b949e';
+const sentClass = s => s==='POSITIVE'?'badge-pos':s==='NEGATIVE'?'badge-neg':'badge-neu';
+const sentIcon  = s => s==='POSITIVE'?'⬆':'NEGATIVE'===s?'⬇':'–';
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const s = Math.floor((now - d) / 1000);
+  if (s < 60)   return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  return Math.floor(s/3600) + 'h ago';
+}
+
+function updateSignals(data) {
+  let cntUp=0, cntDown=0, cntTotal=0;
+  data.signals.forEach(sig => {
+    const id = 'row-' + sig.asset.replace(/[=.]/g,'-');
+    const row = document.getElementById(id);
+    if (!row) return;
+    cntTotal++;
+    if (sig.direction_T3 === 'UP')   cntUp++;
+    if (sig.direction_T3 === 'DOWN') cntDown++;
+
+    if (!sig.headline) {
+      row.cells[1].colSpan = 7;
+      row.cells[1].innerHTML = '<span class="text-muted fst-italic small">No signal yet</span>';
+      return;
+    }
+    const conf = sig.confidence_T3 || 0;
+    const dir  = sig.direction_T3 || 'FLAT';
+    const ret3 = sig.pred_T3 != null ? (sig.pred_T3 >= 0 ? '+' : '') + sig.pred_T3.toFixed(2) + '%' : '—';
+    const ret1 = sig.pred_T1 != null ? (sig.pred_T1 >= 0 ? '+' : '') + sig.pred_T1.toFixed(2) + '%' : '—';
+
+    // Remove colspan if it was set
+    while (row.cells.length < 8) {
+      const td = document.createElement('td');
+      row.appendChild(td);
+    }
+    if (row.cells[1].colSpan > 1) {
+      row.innerHTML = `
+        <td><span class="ticker">${sig.asset}</span><br><small class="text-muted">${sig.name||''}</small></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td>`;
+    }
+
+    row.cells[1].innerHTML = `<span class="badge rounded-pill ${dirClass[dir]} px-2 py-1 fw-semibold">${dirIcon[dir]} ${dir}</span>`;
+    row.cells[2].innerHTML = `
+      <div class="d-flex align-items-center gap-2">
+        <div class="conf-bar-wrap"><div class="conf-bar" style="width:${(conf*100).toFixed(0)}%;background:${confColor(conf)}"></div></div>
+        <small style="color:${confColor(conf)}">${(conf*100).toFixed(0)}%</small>
+      </div>`;
+    row.cells[3].innerHTML = `<span class="pred-return" style="color:${dir==='UP'?'var(--up)':dir==='DOWN'?'var(--down)':'var(--muted)'}">${ret3}</span>
+      <br><small class="text-muted">T+1: ${ret1}</small>`;
+    row.cells[4].innerHTML = `<span class="badge ${sentClass(sig.sentiment)} small">${sentIcon(sig.sentiment)} ${sig.sentiment||''}</span>`;
+    row.cells[5].innerHTML = `<span class="react-time"><i class="bi bi-clock"></i> ${sig.time_to_react||'—'}</span>`;
+    row.cells[6].innerHTML = `<div class="headline-cell" title="${(sig.headline||'').replace(/"/g,"'")}">${sig.headline||''}</div>`;
+    row.cells[7].innerHTML = `<small class="text-muted">${timeAgo(sig.detected_at)}</small>`;
+
+    // Highlight row
+    row.style.transition = 'background .3s';
+    row.style.background = dir==='UP'?'rgba(63,185,80,.06)':dir==='DOWN'?'rgba(248,81,73,.06)':'';
+  });
+
+  document.getElementById('cnt-up').textContent    = cntUp;
+  document.getElementById('cnt-down').textContent   = cntDown;
+  document.getElementById('cnt-total').textContent  = cntTotal;
+  document.getElementById('last-update').textContent = 'Updated ' + timeAgo(data.updated);
+}
+
+function updateNews(data) {
+  const feed = document.getElementById('news-feed');
+  document.getElementById('cnt-news').textContent = data.news.length;
+  if (!data.news.length) { feed.innerHTML='<div class="text-muted text-center py-3">No news yet</div>'; return; }
+
+  feed.innerHTML = data.news.map(n => {
+    const dir = n.direction_T3 || 'FLAT';
+    const conf = n.confidence_T3 ? (n.confidence_T3*100).toFixed(0)+'%' : '';
+    return `<div class="news-item">
+      <div class="d-flex gap-2 align-items-start">
+        <span class="badge ${dirClass[dir]} mt-1">${dir}</span>
+        <div class="flex-grow-1">
+          <div class="news-headline">${n.headline||''}</div>
+          <div class="d-flex flex-wrap gap-2 mt-1">
+            <span class="badge bg-secondary">${n.asset}</span>
+            <span class="badge ${sentClass(n.sentiment)}">${n.sentiment||''}</span>
+            ${conf?`<span class="badge" style="background:rgba(255,255,255,.08);color:var(--muted)">Conf ${conf}</span>`:''}
+            <span class="react-time small"><i class="bi bi-clock"></i> ${n.time_to_react||'—'}</span>
+            <small class="text-muted ms-auto">${timeAgo(n.detected_at)}</small>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refresh() {
+  try {
+    const [s, n] = await Promise.all([
+      fetch('/api/signals').then(r=>r.json()),
+      fetch('/api/news').then(r=>r.json()),
+    ]);
+    updateSignals(s);
+    updateNews(n);
+  } catch(e) { console.error(e); }
+}
+
+async function runPredict() {
+  const h = document.getElementById('pred-headline').value.trim();
+  const a = document.getElementById('pred-asset').value;
+  if (!h) return;
+  const btn = document.querySelector('[onclick="runPredict()"]');
+  btn.disabled = true; btn.textContent = 'Running…';
+
+  try {
+    const r = await fetch('/api/predict', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({headline:h, asset:a})
+    });
+    const d = await r.json();
+    const p = d.predictions;
+    const dir3 = p?.T3?.direction || 'FLAT';
+    document.getElementById('pred-result').innerHTML = `
+      <div class="d-flex flex-wrap gap-3 mt-1">
+        ${['T1','T3','T5'].map(t => {
+          const pr = p?.[t]; if (!pr) return '';
+          const d2 = pr.direction;
+          return `<div class="stat-box px-3 py-2">
+            <div class="section-title">${t.replace('T','T+')}</div>
+            <span class="badge ${dirClass[d2]} me-1">${dirIcon[d2]} ${d2}</span>
+            <span class="pred-return" style="color:${d2==='UP'?'var(--up)':d2==='DOWN'?'var(--down)':'var(--muted)'}">
+              ${pr.return_pct>=0?'+':''}${pr.return_pct}%
+            </span>
+            <div class="mt-1">
+              <small style="color:${confColor(pr.confidence)}">Confidence: ${(pr.confidence*100).toFixed(0)}%</small>
+              <div class="conf-bar-wrap mt-1"><div class="conf-bar" style="width:${(pr.confidence*100).toFixed(0)}%;background:${confColor(pr.confidence)}"></div></div>
+            </div>
+            <div class="mt-1 small text-muted">
+              P(UP) ${(pr.prob_up*100).toFixed(0)}% · P(FLAT) ${(pr.prob_flat*100).toFixed(0)}% · P(DOWN) ${(pr.prob_down*100).toFixed(0)}%
+            </div>
+          </div>`;
+        }).join('')}
+        <div class="stat-box px-3 py-2">
+          <div class="section-title">Sentiment</div>
+          <span class="badge ${sentClass(d.sentiment)}">${d.sentiment}</span>
+          <div class="mt-1 small text-muted">Score: ${d.finbert_compound?.toFixed(3)}</div>
+        </div>
+        <div class="stat-box px-3 py-2">
+          <div class="section-title">React in</div>
+          <span class="react-time fs-6"><i class="bi bi-clock"></i> ${d.time_to_react||'—'}</span>
+        </div>
+      </div>`;
+  } catch(e) {
+    document.getElementById('pred-result').innerHTML = `<span class="text-danger">Error: ${e}</span>`;
+  }
+  btn.disabled = false; btn.innerHTML = '<i class="bi bi-cpu me-1"></i>Run';
+}
+
+// Auto-refresh every 30 seconds
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>
