@@ -421,6 +421,33 @@
     .flash-r { animation:flash-r .9s ease; }
     @keyframes spin { to{transform:rotate(360deg);} }
     .spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.15); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
+
+    /* ═══════════════════════════════════════════════════════ MARKET SESSIONS */
+    .sessions-row {
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:9px 18px; background:var(--bg2);
+      border-bottom:1px solid var(--border);
+    }
+    .sessions-label { color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600; margin-right:4px; }
+    .sess-item {
+      display:flex; align-items:center; gap:5px;
+      padding:4px 10px; border-radius:8px;
+      background:var(--surface); border:1px solid var(--border2);
+      font-size:11px; font-weight:500;
+    }
+    .sess-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+    .sess-dot.open   { background:var(--up);   box-shadow:0 0 6px var(--up-glow); animation:pulse-dot 2s ease-in-out infinite; }
+    .sess-dot.pre    { background:var(--gold);  box-shadow:0 0 6px rgba(251,191,36,.5); }
+    .sess-dot.after  { background:#8b5cf6;      box-shadow:0 0 6px rgba(139,92,246,.4); }
+    .sess-dot.closed { background:var(--flat); }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .sess-name   { color:var(--muted2); }
+    .sess-status { font-weight:700; font-size:10px; }
+    .sess-status.open   { color:var(--up); }
+    .sess-status.pre    { color:var(--gold); }
+    .sess-status.after  { color:#8b5cf6; }
+    .sess-status.closed { color:var(--muted); }
+    .sess-hours { color:var(--muted); font-size:9px; }
   </style>
 </head>
 <body>
@@ -499,6 +526,46 @@
     <div class="stat-top"><span class="stat-icon"><i class="bi bi-activity"></i></span></div>
     <div class="stat-label">Market Bias</div>
     <div class="stat-val" id="cnt-bias">—</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ MARKET SESSIONS -->
+<div class="sessions-row">
+  <span class="sessions-label">Sessions</span>
+  <div class="sess-item">
+    <div class="sess-dot" id="sd-us"></div>
+    <span class="sess-name">🇺🇸 NYSE</span>
+    <span class="sess-status" id="ss-us">—</span>
+    <span class="sess-hours"  id="sh-us"></span>
+  </div>
+  <div class="sess-item">
+    <div class="sess-dot" id="sd-lon"></div>
+    <span class="sess-name">🇬🇧 London</span>
+    <span class="sess-status" id="ss-lon">—</span>
+    <span class="sess-hours"  id="sh-lon"></span>
+  </div>
+  <div class="sess-item">
+    <div class="sess-dot" id="sd-tok"></div>
+    <span class="sess-name">🇯🇵 Tokyo</span>
+    <span class="sess-status" id="ss-tok">—</span>
+    <span class="sess-hours"  id="sh-tok"></span>
+  </div>
+  <div class="sess-item">
+    <div class="sess-dot" id="sd-hk"></div>
+    <span class="sess-name">🇭🇰 Hong Kong</span>
+    <span class="sess-status" id="ss-hk">—</span>
+    <span class="sess-hours"  id="sh-hk"></span>
+  </div>
+  <div class="sess-item">
+    <div class="sess-dot" id="sd-cme"></div>
+    <span class="sess-name">📊 CME</span>
+    <span class="sess-status" id="ss-cme">—</span>
+    <span class="sess-hours"  id="sh-cme"></span>
+  </div>
+  <div class="sess-item">
+    <div class="sess-dot open"></div>
+    <span class="sess-name">₿ Crypto</span>
+    <span class="sess-status open">OPEN 24/7</span>
   </div>
 </div>
 
@@ -679,18 +746,78 @@ function sentPill(s) {
   return `<span class="sent-pill ${m[s]||'sp-neu'}">${i[s]||''} ${s||'—'}</span>`;
 }
 
-/* ─── clock & market ──────────────────────────────────────────────── */
+/* ─── clock & market sessions ─────────────────────────────────────── */
+function inTZ(tz) {
+  const d = new Date(new Date().toLocaleString('en-US', {timeZone: tz}));
+  return { h: d.getHours(), m: d.getMinutes(), wd: d.getDay(),
+           mins: d.getHours()*60 + d.getMinutes() };
+}
+
+function setSess(pfx, status, label) {
+  const dot = $(pfx+'dot'), st = $(pfx+'st'), hr = $(pfx+'hrs');
+  if (!dot) return;
+  dot.className = 'sess-dot ' + status;
+  if (st) { st.className = 'sess-status ' + status;
+            st.textContent = {open:'OPEN',pre:'PRE',after:'AFTER-HRS',closed:'CLOSED'}[status]||status; }
+  if (hr) hr.textContent = label || '';
+}
+
 function tick() {
   const now = new Date();
-  $('nav-clock').textContent = now.toLocaleTimeString('en-US',{hour12:false});
-  const et = new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const h  = et.getHours(), m = et.getMinutes(), wd = et.getDay();
-  const pre  = wd>=1&&wd<=5 && h>=4 && (h<9||(h===9&&m<30));
-  const open = wd>=1&&wd<=5 && (h>9||(h===9&&m>=30)) && h<16;
+  $('nav-clock').textContent = now.toLocaleTimeString('en-US', {hour12:false});
+
+  /* ── NYSE / NASDAQ ── */
+  const et = inTZ('America/New_York');
+  const usS = (() => {
+    if (et.wd===0||et.wd===6) return 'closed';
+    if (et.mins >= 9*60+30 && et.mins < 16*60) return 'open';
+    if (et.mins >= 4*60    && et.mins < 9*60+30) return 'pre';
+    if (et.mins >= 16*60   && et.mins < 20*60) return 'after';
+    return 'closed';
+  })();
+  setSess('sd-us','ss-us','sh-us'.replace('ss-',''), usS,
+    {open:'9:30–16:00 ET', pre:'4:00–9:30 ET', after:'16:00–20:00 ET', closed:''}[usS]);
+  // Fix: call properly
+  const usEl = $('sd-us'); if(usEl) usEl.className='sess-dot '+usS;
+  const usStEl=$('ss-us'); if(usStEl){usStEl.className='sess-status '+usS;usStEl.textContent={open:'OPEN',pre:'PRE-MARKET',after:'AFTER-HRS',closed:'CLOSED'}[usS];}
+  const usHrEl=$('sh-us'); if(usHrEl)usHrEl.textContent={open:'9:30–16:00 ET',pre:'4:00–9:30 ET',after:'16:00–20:00 ET',closed:''}[usS];
+
+  /* navbar pill */
   const el = $('market-status');
-  if (open)      { el.className='pill pill-market pill-open';   el.innerHTML='<i class="bi bi-building"></i> NYSE OPEN'; }
-  else if (pre)  { el.className='pill pill-market pill-pre';    el.innerHTML='<i class="bi bi-moon-stars"></i> PRE-MARKET'; }
-  else           { el.className='pill pill-market pill-closed'; el.innerHTML='<i class="bi bi-moon"></i> MARKET CLOSED'; }
+  if (usS==='open')   { el.className='pill pill-market pill-open';   el.innerHTML='<i class="bi bi-building"></i> NYSE OPEN'; }
+  else if (usS==='pre')  { el.className='pill pill-market pill-pre';    el.innerHTML='<i class="bi bi-moon-stars"></i> PRE-MARKET'; }
+  else if (usS==='after'){ el.className='pill pill-market pill-pre';    el.innerHTML='<i class="bi bi-activity"></i> AFTER-HRS'; }
+  else                   { el.className='pill pill-market pill-closed'; el.innerHTML='<i class="bi bi-moon"></i> CLOSED'; }
+
+  /* ── London LSE ── */
+  const lon = inTZ('Europe/London');
+  const lonS = (lon.wd>=1&&lon.wd<=5&&lon.mins>=8*60&&lon.mins<16*60+30) ? 'open' : 'closed';
+  const lonEl=$('sd-lon');if(lonEl)lonEl.className='sess-dot '+lonS;
+  const lonStEl=$('ss-lon');if(lonStEl){lonStEl.className='sess-status '+lonS;lonStEl.textContent=lonS==='open'?'OPEN':'CLOSED';}
+  const lonHrEl=$('sh-lon');if(lonHrEl)lonHrEl.textContent=lonS==='open'?'8:00–16:30 GMT':'';
+
+  /* ── Tokyo TSE ── */
+  const tok = inTZ('Asia/Tokyo');
+  const tokS = (tok.wd>=1&&tok.wd<=5 &&
+    ((tok.mins>=9*60&&tok.mins<11*60+30)||(tok.mins>=12*60+30&&tok.mins<15*60+30))) ? 'open' : 'closed';
+  const tokEl=$('sd-tok');if(tokEl)tokEl.className='sess-dot '+tokS;
+  const tokStEl=$('ss-tok');if(tokStEl){tokStEl.className='sess-status '+tokS;tokStEl.textContent=tokS==='open'?'OPEN':'CLOSED';}
+  const tokHrEl=$('sh-tok');if(tokHrEl)tokHrEl.textContent=tokS==='open'?'9:00–15:30 JST':'';
+
+  /* ── Hong Kong HKEX ── */
+  const hk = inTZ('Asia/Hong_Kong');
+  const hkS = (hk.wd>=1&&hk.wd<=5 &&
+    ((hk.mins>=9*60+30&&hk.mins<12*60)||(hk.mins>=13*60&&hk.mins<16*60))) ? 'open' : 'closed';
+  const hkEl=$('sd-hk');if(hkEl)hkEl.className='sess-dot '+hkS;
+  const hkStEl=$('ss-hk');if(hkStEl){hkStEl.className='sess-status '+hkS;hkStEl.textContent=hkS==='open'?'OPEN':'CLOSED';}
+  const hkHrEl=$('sh-hk');if(hkHrEl)hkHrEl.textContent=hkS==='open'?'9:30–16:00 HKT':'';
+
+  /* ── CME Futures ── */
+  const cmeOpen = !(et.wd===6 || (et.wd===0&&et.mins<18*60) || (et.mins>=17*60&&et.mins<18*60));
+  const cmeS = cmeOpen ? 'open' : 'closed';
+  const cmeEl=$('sd-cme');if(cmeEl)cmeEl.className='sess-dot '+cmeS;
+  const cmeStEl=$('ss-cme');if(cmeStEl){cmeStEl.className='sess-status '+cmeS;cmeStEl.textContent=cmeS==='open'?'OPEN':'CLOSED';}
+  const cmeHrEl=$('sh-cme');if(cmeHrEl)cmeHrEl.textContent=cmeS==='open'?'Sun 6PM–Fri 5PM ET':'';
 }
 setInterval(tick, 1000); tick();
 

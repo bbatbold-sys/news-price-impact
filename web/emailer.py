@@ -1,5 +1,5 @@
 """
-Sends rich HTML email alerts with full article content and highlighted keywords.
+Sends rich HTML email alerts matching the PULSE dashboard dark-space theme.
 """
 import smtplib, logging, requests, re
 from email.mime.multipart import MIMEMultipart
@@ -22,6 +22,21 @@ except ImportError:
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
+# ── Colour palette (matches dashboard CSS variables) ──────────────────────────
+BG       = "#05070f"
+BG2      = "#080c17"
+SURFACE  = "#0c1222"
+SURFACE2 = "#101828"
+BORDER   = "#1a2540"
+TEXT     = "#e8edf5"
+MUTED    = "#5a6a84"
+MUTED2   = "#8898b3"
+CYAN     = "#00b4d8"
+UP       = "#00d084"
+DOWN     = "#ff4560"
+GOLD     = "#fbbf24"
+PURPLE   = "#7c3aed"
+
 BULLISH_KW = ["beats","beat","raises","upgrade","upgraded","record","surges","rallies",
               "growth","profit","dividend","buyback","outperform","strong","boom",
               "soars","jumps","milestone","breakthrough","exceeds","record-high",
@@ -33,23 +48,18 @@ BEARISH_KW = ["misses","missed","cuts","downgrade","downgraded","warning","lawsu
               "sell","underweight","negative","concern","risk","crash","collapse"]
 
 
-# ── Scrape article body from URL ──────────────────────────────────────────────
+# ── Scrape article body ────────────────────────────────────────────────────────
 def scrape_article(url: str, max_chars: int = 1200) -> str:
     try:
         r = requests.get(url, headers=HEADERS, timeout=12)
         soup = BeautifulSoup(r.content, "html.parser")
-
-        # Remove script/style noise
         for tag in soup(["script","style","nav","header","footer","aside","form"]):
             tag.decompose()
-
-        # Try known article containers in order
         body = (soup.find("div", {"class": "caas-body"}) or
                 soup.find("div", {"class": "article-body"}) or
                 soup.find("div", {"itemprop": "articleBody"}) or
                 soup.find("article") or
                 soup.find("main"))
-
         if body:
             paragraphs = [p.get_text(" ", strip=True)
                           for p in body.find_all("p")
@@ -61,141 +71,183 @@ def scrape_article(url: str, max_chars: int = 1200) -> str:
     return ""
 
 
-# ── Highlight bullish/bearish keywords in HTML text ───────────────────────────
+# ── Highlight bullish/bearish keywords ────────────────────────────────────────
 def highlight(text: str) -> str:
     if not text:
         return ""
-    # Escape HTML first
-    text = (text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;"))
+    text = text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
     for kw in BULLISH_KW:
-        pattern = re.compile(rf"\b({re.escape(kw)})\b", re.IGNORECASE)
-        text = pattern.sub(
-            r'<mark style="background:#166534;color:#bbf7d0;padding:1px 4px;'
-            r'border-radius:3px;font-weight:bold">\1</mark>', text)
+        text = re.compile(rf"\b({re.escape(kw)})\b", re.IGNORECASE).sub(
+            r'<mark style="background:#14532d;color:#86efac;padding:1px 4px;'
+            r'border-radius:3px;font-weight:700">\1</mark>', text)
     for kw in BEARISH_KW:
-        pattern = re.compile(rf"\b({re.escape(kw)})\b", re.IGNORECASE)
-        text = pattern.sub(
-            r'<mark style="background:#7f1d1d;color:#fecaca;padding:1px 4px;'
-            r'border-radius:3px;font-weight:bold">\1</mark>', text)
+        text = re.compile(rf"\b({re.escape(kw)})\b", re.IGNORECASE).sub(
+            r'<mark style="background:#7f1d1d;color:#fca5a5;padding:1px 4px;'
+            r'border-radius:3px;font-weight:700">\1</mark>', text)
     return text
 
 
-def _signal_color(direction: str) -> str:
-    return {"UP": "#22c55e", "DOWN": "#ef4444", "FLAT": "#94a3b8"}.get(direction, "#94a3b8")
-
-def _signal_bg(direction: str) -> str:
-    return {"UP": "#14532d", "DOWN": "#450a0a", "FLAT": "#1e293b"}.get(direction, "#1e293b")
-
-def _bar(pct: float, color: str) -> str:
-    w = int(pct * 100)
-    return (f'<div style="background:#334155;border-radius:4px;height:8px;width:120px;display:inline-block">'
-            f'<div style="background:{color};height:8px;border-radius:4px;width:{w}px"></div></div>')
+# ── Confidence bar (180 px wide) ───────────────────────────────────────────────
+def _conf_bar(conf: float, color: str) -> str:
+    w = int(conf * 180)
+    return (f'<div style="background:{SURFACE};border-radius:4px;height:5px;width:180px;margin:5px 0 3px">'
+            f'<div style="background:{color};height:5px;border-radius:4px;width:{w}px"></div></div>')
 
 
-# ── Build one signal card ─────────────────────────────────────────────────────
+# ── Single signal card ────────────────────────────────────────────────────────
 def _signal_card(s: dict, article_text: str) -> str:
-    color   = _signal_color(s["direction_T3"])
-    bg      = _signal_bg(s["direction_T3"])
-    conf    = s.get("confidence_T3", 0)
-    ret_str = f"{s['pred_T3']:+.2f}%" if s.get("pred_T3") is not None else "N/A"
+    dir3  = s["direction_T3"]
+    acc   = UP if dir3 == "UP" else DOWN if dir3 == "DOWN" else MUTED
+    arrow = "↑" if dir3 == "UP" else "↓" if dir3 == "DOWN" else "→"
+    conf  = s.get("confidence_T3", 0)
     conf_pct = f"{conf*100:.0f}%"
-    hl_headline = highlight(s.get("headline",""))
-    hl_desc     = highlight(s.get("description",""))
+
+    def fmt_ret(k):
+        v = s.get(k)
+        return (f'<span style="color:{acc};font-family:monospace;font-weight:700">'
+                f'{v:+.2f}%</span>') if v is not None else '<span style="color:#3d4f6b">—</span>'
+
+    hl_headline = highlight(s.get("headline", ""))
+    hl_desc     = highlight(s.get("description", ""))
     hl_body     = highlight(article_text) if article_text else ""
 
     pos_pct = int(s.get("finbert_pos", 0) * 100)
     neg_pct = int(s.get("finbert_neg", 0) * 100)
 
+    desc_block = (
+        f'<tr><td colspan="2" style="padding:14px 20px;background:{BG2};'
+        f'border-top:1px solid {BORDER}">'
+        f'<div style="color:{MUTED};font-size:9px;text-transform:uppercase;'
+        f'letter-spacing:1.5px;margin-bottom:6px">Summary</div>'
+        f'<div style="color:{MUTED2};font-size:13px;line-height:1.6">{hl_desc}</div>'
+        f'</td></tr>' if hl_desc else ""
+    )
+    body_block = (
+        f'<tr><td colspan="2" style="padding:14px 20px;background:{BG2};'
+        f'border-top:1px solid {BORDER}">'
+        f'<div style="color:{MUTED};font-size:9px;text-transform:uppercase;'
+        f'letter-spacing:1.5px;margin-bottom:6px">Article Content</div>'
+        f'<div style="color:{MUTED2};font-size:12px;line-height:1.7">{hl_body}</div>'
+        f'</td></tr>' if hl_body else ""
+    )
+
     return f"""
-    <div style="background:{bg};border:1px solid {color};border-radius:12px;
-                padding:20px;margin-bottom:24px">
-
-      <!-- Header row -->
-      <div style="display:flex;justify-content:space-between;align-items:center;
-                  margin-bottom:14px;flex-wrap:wrap;gap:8px">
-        <div>
-          <span style="font-size:22px;font-weight:800;color:#f1f5f9">
-            {s.get('name', s['asset'])}
-          </span>
-          <span style="color:#64748b;font-size:13px;margin-left:8px">
-            ({s['asset']} &bull; {s['asset_class'].upper()})
-          </span>
-        </div>
-        <div style="text-align:right">
-          <span style="font-size:28px;font-weight:900;color:{color}">
-            {s["direction_T3"]}
-          </span>
-          <span style="color:{color};font-size:14px;margin-left:6px">{ret_str}</span>
-        </div>
-      </div>
-
-      <!-- Stats row -->
-      <table style="width:100%;margin-bottom:16px">
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="background:{SURFACE};border:1px solid {acc};border-left:4px solid {acc};
+              border-radius:12px;margin-bottom:20px;overflow:hidden;border-collapse:separate">
+  <!-- Header -->
+  <tr>
+    <td colspan="2"
+        style="background:linear-gradient(135deg,{SURFACE},{acc}18);
+               padding:18px 20px;border-bottom:1px solid {BORDER}">
+      <table width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td style="padding:4px 8px 4px 0;color:#94a3b8;font-size:12px;
-                     text-transform:uppercase;width:140px">Confidence</td>
-          <td style="padding:4px 0">
-            {_bar(conf, color)}
-            <span style="color:{color};font-weight:bold;margin-left:8px">{conf_pct}</span>
+          <td style="vertical-align:top">
+            <div style="font-size:21px;font-weight:900;color:{TEXT};letter-spacing:-.3px">
+              {s.get('name', s['asset'])}
+            </div>
+            <div style="font-size:11px;color:{MUTED};margin-top:2px">
+              {s['asset']} &bull; {s['asset_class'].upper()}
+            </div>
           </td>
-          <td style="padding:4px 8px 4px 20px;color:#94a3b8;font-size:12px;
-                     text-transform:uppercase;width:120px">Sentiment</td>
-          <td style="padding:4px 0;color:#f1f5f9">{s.get('sentiment','')}</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px 4px 0;color:#94a3b8;font-size:12px;
-                     text-transform:uppercase">React In</td>
-          <td style="padding:4px 0;color:#f59e0b;font-weight:bold">
-            {s.get('time_to_react','')}
-          </td>
-          <td style="padding:4px 8px 4px 20px;color:#94a3b8;font-size:12px;
-                     text-transform:uppercase">FinBERT</td>
-          <td style="padding:4px 0;font-size:12px">
-            <span style="color:#22c55e">+{pos_pct}%</span>
-            &nbsp;&nbsp;
-            <span style="color:#ef4444">-{neg_pct}%</span>
+          <td style="text-align:right;vertical-align:top">
+            <div style="font-size:30px;font-weight:900;color:{acc};line-height:1;font-family:monospace">
+              {arrow} {dir3}
+            </div>
+            <div style="font-size:16px;font-weight:700;color:{acc};font-family:monospace;margin-top:2px">
+              {fmt_ret('pred_T3')}
+            </div>
           </td>
         </tr>
       </table>
+    </td>
+  </tr>
 
-      <!-- Headline -->
-      <div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="color:#64748b;font-size:11px;text-transform:uppercase;
-                    letter-spacing:1px;margin-bottom:6px">Headline</div>
-        <div style="color:#e2e8f0;font-size:15px;font-weight:600;line-height:1.5">
-          {hl_headline}
-        </div>
+  <!-- Stats -->
+  <tr>
+    <td style="padding:16px 20px;vertical-align:top;width:55%">
+      <div style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">
+        Confidence
       </div>
-
-      <!-- Summary from RSS -->
-      {f'''<div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="color:#64748b;font-size:11px;text-transform:uppercase;
-                    letter-spacing:1px;margin-bottom:6px">Summary</div>
-        <div style="color:#cbd5e1;font-size:14px;line-height:1.6">{hl_desc}</div>
-      </div>''' if hl_desc else ''}
-
-      <!-- Article body -->
-      {f'''<div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="color:#64748b;font-size:11px;text-transform:uppercase;
-                    letter-spacing:1px;margin-bottom:6px">Article Content</div>
-        <div style="color:#cbd5e1;font-size:13px;line-height:1.7">{hl_body}</div>
-      </div>''' if hl_body else ''}
-
-      <!-- Legend + link -->
-      <div style="display:flex;justify-content:space-between;align-items:center;
-                  flex-wrap:wrap;gap:8px">
-        <div style="font-size:11px;color:#475569">
-          <mark style="background:#166534;color:#bbf7d0;padding:1px 4px;
-                       border-radius:3px">green</mark> = bullish keyword &nbsp;
-          <mark style="background:#7f1d1d;color:#fecaca;padding:1px 4px;
-                       border-radius:3px">red</mark> = bearish keyword
-        </div>
-        <a href="{s.get('url','#')}"
-           style="color:#38bdf8;font-size:13px;text-decoration:none">
-          Read full article &rarr;
-        </a>
+      {_conf_bar(conf, acc)}
+      <div style="font-size:22px;font-weight:900;color:{acc};font-family:monospace">{conf_pct}</div>
+      <div style="margin-top:12px">
+        <span style="background:{SURFACE2};color:{MUTED2};padding:3px 9px;border-radius:6px;
+                     font-size:11px;border:1px solid {BORDER}">{s.get('sentiment','—')}</span>
+        &nbsp;
+        <span style="color:{UP};font-size:11px;font-family:monospace">+{pos_pct}%</span>
+        <span style="color:{DOWN};font-size:11px;font-family:monospace"> -{neg_pct}%</span>
       </div>
-    </div>"""
+      <div style="margin-top:10px;color:{GOLD};font-size:12px;font-weight:700;font-family:monospace">
+        ⏱ {s.get('time_to_react','—')}
+        <span style="color:{MUTED};font-weight:400;font-size:10px"> to react</span>
+      </div>
+    </td>
+    <td style="padding:16px 20px;vertical-align:top;border-left:1px solid {BORDER}">
+      <table cellpadding="5" cellspacing="0" width="100%">
+        <tr>
+          <td style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px">T+1 Day</td>
+          <td style="text-align:right">{fmt_ret('pred_T1')}</td>
+        </tr>
+        <tr>
+          <td style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px">T+3 Days</td>
+          <td style="text-align:right">{fmt_ret('pred_T3')}</td>
+        </tr>
+        <tr>
+          <td style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px">T+5 Days</td>
+          <td style="text-align:right">{fmt_ret('pred_T5')}</td>
+        </tr>
+        <tr>
+          <td style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px">Prob Up</td>
+          <td style="text-align:right;color:{UP};font-family:monospace;font-size:12px">
+            {int(s.get('prob_up_T3',0)*100)}%
+          </td>
+        </tr>
+        <tr>
+          <td style="color:{MUTED};font-size:9px;text-transform:uppercase;letter-spacing:1px">Prob Down</td>
+          <td style="text-align:right;color:{DOWN};font-family:monospace;font-size:12px">
+            {int(s.get('prob_down_T3',0)*100)}%
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Headline -->
+  <tr>
+    <td colspan="2" style="padding:14px 20px;background:{BG2};border-top:1px solid {BORDER}">
+      <div style="color:{MUTED};font-size:9px;text-transform:uppercase;
+                  letter-spacing:1.5px;margin-bottom:6px">Headline</div>
+      <div style="color:{TEXT};font-size:14px;font-weight:600;line-height:1.5">
+        {hl_headline}
+      </div>
+    </td>
+  </tr>
+
+  {desc_block}
+  {body_block}
+
+  <!-- Footer -->
+  <tr>
+    <td colspan="2" style="padding:10px 20px;border-top:1px solid {BORDER}">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="font-size:10px;color:{MUTED}">
+            <mark style="background:#14532d;color:#86efac;padding:1px 5px;border-radius:3px;font-size:9px">green</mark>
+            = bullish &nbsp;
+            <mark style="background:#7f1d1d;color:#fca5a5;padding:1px 5px;border-radius:3px;font-size:9px">red</mark>
+            = bearish keyword
+          </td>
+          <td style="text-align:right">
+            <a href="{s.get('url','#')}" style="color:{CYAN};font-size:12px;text-decoration:none;font-weight:600">
+              Read article →
+            </a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>"""
 
 
 # ── Main send function ────────────────────────────────────────────────────────
@@ -205,21 +257,19 @@ def send_signal_email(signals: list[dict]):
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     count   = len(signals)
-    subject = (f"[{'UP' if signals[0]['direction_T3']=='UP' else 'DOWN'} Signal] "
-               f"{signals[0].get('name', signals[0]['asset'])} "
-               f"{signals[0]['confidence_T3']*100:.0f}% conf"
+    top     = signals[0]
+    subject = (f"[{'↑' if top['direction_T3']=='UP' else '↓'} {top['direction_T3']}] "
+               f"{top.get('name', top['asset'])} "
+               f"{top['confidence_T3']*100:.0f}% conf"
                + (f" + {count-1} more" if count > 1 else ""))
 
-    # Scrape article bodies
     cards_html = ""
     for s in signals:
-        article_text = scrape_article(s.get("url", ""))
-        cards_html  += _signal_card(s, article_text)
+        cards_html += _signal_card(s, scrape_article(s.get("url", "")))
 
     try:
         import tunnel as _tunnel
         dashboard_url = _tunnel.PUBLIC_URL
-        # Also check file (updated by tunnel thread)
         import os as _os
         _url_file = _os.path.join(_os.path.dirname(__file__), "public_url.txt")
         if _os.path.exists(_url_file):
@@ -231,31 +281,56 @@ def send_signal_email(signals: list[dict]):
     except Exception:
         dashboard_url = "http://localhost:5000"
 
-    html = f"""
-    <html><body style="font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;
-                       margin:0;padding:24px">
-      <div style="max-width:720px;margin:auto">
+    html = f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,Helvetica,sans-serif;background:{BG};color:{TEXT};
+                   margin:0;padding:20px 0">
+<div style="max-width:680px;margin:0 auto;padding:0 16px">
 
-        <!-- Title bar -->
-        <div style="background:#1e293b;border-radius:12px;padding:20px;
-                    margin-bottom:24px;border-left:4px solid #38bdf8">
-          <h2 style="color:#38bdf8;margin:0 0 4px 0;font-size:22px">
-            News Impact Alert
-          </h2>
-          <p style="color:#64748b;margin:0;font-size:13px">
-            {now_str} &bull; {count} high-confidence signal{'s' if count > 1 else ''}
-            &bull; <a href="{dashboard_url}" style="color:#38bdf8">Open Dashboard</a>
-          </p>
-        </div>
+  <!-- ═══ HEADER ═══ -->
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:linear-gradient(135deg,{SURFACE},{BG2});
+                border:1px solid rgba(0,180,216,.25);border-top:3px solid {CYAN};
+                border-radius:14px;margin-bottom:20px;overflow:hidden">
+    <tr>
+      <td style="padding:22px 26px">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align:middle">
+              <div style="font-size:10px;color:{CYAN};text-transform:uppercase;
+                          letter-spacing:2.5px;font-weight:700;margin-bottom:4px">
+                ⚡ PULSE Terminal
+              </div>
+              <div style="font-size:26px;font-weight:900;color:{TEXT};line-height:1.1">
+                News Impact Alert
+              </div>
+              <div style="font-size:12px;color:{MUTED};margin-top:5px">
+                {now_str} &bull; {count} high-confidence signal{'s' if count>1 else ''} detected
+              </div>
+            </td>
+            <td style="text-align:right;vertical-align:middle;padding-left:16px">
+              <a href="{dashboard_url}"
+                 style="background:{CYAN};color:{BG};padding:10px 18px;
+                        border-radius:8px;font-size:12px;font-weight:800;
+                        text-decoration:none;display:inline-block;white-space:nowrap">
+                Open Dashboard →
+              </a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 
-        {cards_html}
+  {cards_html}
 
-        <p style="color:#334155;font-size:11px;text-align:center;margin-top:8px">
-          Min confidence: {MIN_CONFIDENCE*100:.0f}% &bull;
-          Dashboard: <a href="{dashboard_url}" style="color:#475569">{dashboard_url}</a>
-        </p>
-      </div>
-    </body></html>"""
+  <!-- ═══ FOOTER ═══ -->
+  <div style="text-align:center;padding:16px;color:{MUTED};font-size:10px">
+    Min confidence threshold: {MIN_CONFIDENCE*100:.0f}% &bull;
+    <a href="{dashboard_url}" style="color:#334155">{dashboard_url}</a>
+  </div>
+
+</div>
+</body></html>"""
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
