@@ -16,6 +16,10 @@ __pycache__/
 venv/
 .venv/
 
+# Credentials (never commit)
+web/email_config.py
+web/signals.db
+
 # OS
 .DS_Store
 Thumbs.db
