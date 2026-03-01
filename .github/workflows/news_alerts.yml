@@ -11,28 +11,55 @@ jobs:
     timeout-minutes: 12
 
     steps:
-      # ── 1. Checkout repo (includes pre-trained models) ──────────────────────
+      # ── 1. Checkout repo ─────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Python 3.11 with pip cache ────────────────────────────────────────
+      # ── 2. Check heartbeat — skip if local poller is running ─────────────────
+      #    Local poller writes heartbeat.txt every ~5 min when the computer is on.
+      #    If heartbeat is < 10 minutes old → computer is ON → skip this run.
+      #    If heartbeat is >= 10 minutes old → computer is OFF → run cloud poller.
+      - name: Check local poller heartbeat
+        id: heartbeat
+        run: |
+          if [ -f heartbeat.txt ]; then
+            LAST=$(cat heartbeat.txt)
+            NOW=$(date +%s)
+            AGE=$((NOW - LAST))
+            echo "Heartbeat age: ${AGE}s"
+            if [ $AGE -lt 600 ]; then
+              echo "Local poller is active (${AGE}s ago). Skipping this run."
+              echo "skip=true" >> $GITHUB_OUTPUT
+            else
+              echo "Local poller offline (${AGE}s ago). Running cloud poller."
+              echo "skip=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No heartbeat file found. Running cloud poller."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── 3. Python 3.11 with pip cache ────────────────────────────────────────
       - name: Set up Python
+        if: steps.heartbeat.outputs.skip == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      # ── 3. Cache HuggingFace FinBERT model (~500 MB, only downloaded once) ───
+      # ── 4. Cache HuggingFace FinBERT model ───────────────────────────────────
       - name: Cache HuggingFace models
+        if: steps.heartbeat.outputs.skip == 'false'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-finbert-prosusai-v1
 
-      # ── 4. Install dependencies ──────────────────────────────────────────────
+      # ── 5. Install dependencies ──────────────────────────────────────────────
       - name: Install dependencies
+        if: steps.heartbeat.outputs.skip == 'false'
         run: |
           pip install --upgrade pip
           pip install \
@@ -41,8 +68,9 @@ jobs:
             transformers \
             torch --index-url https://download.pytorch.org/whl/cpu
 
-      # ── 5. Run the poller (email config comes from GitHub Secrets) ───────────
+      # ── 6. Run the cloud poller ───────────────────────────────────────────────
       - name: Poll news and send alerts
+        if: steps.heartbeat.outputs.skip == 'false'
         env:
           RECIPIENT_EMAIL:  ${{ secrets.RECIPIENT_EMAIL }}
           SENDER_EMAIL:     ${{ secrets.SENDER_EMAIL }}
@@ -52,8 +80,9 @@ jobs:
           MIN_CONFIDENCE:   ${{ secrets.MIN_CONFIDENCE }}
         run: python cloud_poller.py
 
-      # ── 6. Commit updated seen_urls.json so next run skips processed articles ─
+      # ── 7. Commit updated seen_urls.json ─────────────────────────────────────
       - name: Save seen URLs
+        if: steps.heartbeat.outputs.skip == 'false'
         run: |
           git config user.name  "GitHub Actions Bot"
           git config user.email "actions@github.com"

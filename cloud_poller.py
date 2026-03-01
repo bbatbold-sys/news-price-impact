@@ -46,7 +46,9 @@ ASSET_NAMES = {
 def load_seen() -> set:
     try:
         with open(SEEN_FILE) as f:
-            return set(json.load(f))
+            data = json.load(f)
+        log.info(f"Loaded {len(data)} seen URLs (last synced by local poller)")
+        return set(data)
     except Exception:
         return set()
 
