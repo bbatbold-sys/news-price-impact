@@ -1,9 +1,10 @@
 """
-GDELT poller — checks Yahoo Finance news every 2 minutes,
-scores with FinBERT, predicts impact, stores in DB, sends email alerts.
+Yahoo Finance RSS poller — fetches news directly from Yahoo Finance
+with zero delay. Polls every 1 minute.
 """
-import requests, time, logging
+import requests, logging, xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import pytz
 import pandas as pd
 
@@ -11,12 +12,23 @@ from db import insert_signal
 from predictor import predict
 from news_price_impact_v2 import ASSET_KEYWORDS
 
-log = logging.getLogger("poller")
-GDELT_API   = "https://api.gdeltproject.org/api/v2/doc/doc"
-POLL_WINDOW = 20   # fetch articles from last N minutes (GDELT ~15 min delay)
-ET_TZ       = pytz.timezone("US/Eastern")
+log     = logging.getLogger("poller")
+ET_TZ   = pytz.timezone("US/Eastern")
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 SEEN_URLS: set = set()
+
+# ── Top tickers to poll individually (most active / news-heavy) ───────────────
+TOP_TICKERS = [
+    "NVDA","TSLA","AAPL","AMD","AMZN","META","MSFT","GOOGL","PLTR",
+    "SPY","QQQ","JPM","GS","BAC","COIN",
+    "BTC-USD","ETH-USD","SOL-USD",
+    "GC=F","CL=F","NG=F",
+]
+
+YF_GENERAL_RSS = "https://finance.yahoo.com/news/rssindex"
+YF_TICKER_RSS  = "https://finance.yahoo.com/rss/headline?s={ticker}"
+
 
 def _fmt_react(s):
     if s is None: return "Unknown"
@@ -26,29 +38,28 @@ def _fmt_react(s):
     h = s // 3600; m = (s % 3600) // 60
     return f"{h}h {m}m" if m else f"{h}h"
 
+
 # ── Market hours helper ───────────────────────────────────────────────────────
 def seconds_to_react(asset_class: str) -> int:
     now_et = datetime.now(ET_TZ)
     if asset_class == "crypto":
-        return 4 * 3600       # crypto never sleeps, ~4 h average
-
+        return 4 * 3600
     if asset_class == "commodity":
-        return 6 * 3600       # futures next session ~6 h
+        return 6 * 3600
 
-    # Stock — NYSE/NASDAQ 9:30-16:00 ET weekdays
     market_open  = now_et.replace(hour=9,  minute=30, second=0, microsecond=0)
     market_close = now_et.replace(hour=16, minute=0,  second=0, microsecond=0)
     is_weekday   = now_et.weekday() < 5
 
     if is_weekday and market_open <= now_et <= market_close:
         remaining = (market_close - now_et).seconds
-        return min(remaining, 2 * 3600)    # react within 2 h during open
+        return min(remaining, 2 * 3600)
 
-    # Find next market open
     next_open = market_open + timedelta(days=1)
     while next_open.weekday() >= 5:
         next_open += timedelta(days=1)
     return int((next_open - now_et).total_seconds())
+
 
 # ── Asset matcher ─────────────────────────────────────────────────────────────
 def match_assets(title: str) -> list[str]:
@@ -69,32 +80,47 @@ def match_assets(title: str) -> list[str]:
         matched = list(set(matched + MACRO_ASSETS))
     return matched
 
-# ── Fetch latest news from GDELT ──────────────────────────────────────────────
-def fetch_latest():
-    now  = datetime.now(timezone.utc)
-    past = now - timedelta(minutes=POLL_WINDOW)
-    params = {
-        "query":         "domain:finance.yahoo.com",
-        "mode":          "artlist",
-        "maxrecords":    250,
-        "startdatetime": past.strftime("%Y%m%d%H%M%S"),
-        "enddatetime":   now.strftime("%Y%m%d%H%M%S"),
-        "format":        "json",
-        "sort":          "DateDesc",
-    }
+
+# ── Fetch one RSS feed and return list of articles ────────────────────────────
+def _fetch_rss(url: str) -> list[dict]:
     try:
-        r = requests.get(GDELT_API, params=params, timeout=20)
+        r = requests.get(url, headers=HEADERS, timeout=15)
         r.raise_for_status()
-        return r.json().get("articles", [])
+        root = ET.fromstring(r.content)
+        articles = []
+        for item in root.findall(".//item"):
+            title    = item.findtext("title", "").strip()
+            link     = item.findtext("link",  "").strip()
+            pub_date = item.findtext("pubDate", "")
+            if title and link:
+                articles.append({"title": title, "url": link, "pubDate": pub_date})
+        return articles
     except Exception as e:
-        log.warning(f"GDELT fetch error: {e}")
+        log.warning(f"RSS fetch error ({url}): {e}")
         return []
+
+
+# ── Fetch all feeds (general + top tickers) ───────────────────────────────────
+def fetch_latest() -> list[dict]:
+    all_articles = {}   # url -> article (deduplicate)
+
+    # General feed
+    for a in _fetch_rss(YF_GENERAL_RSS):
+        all_articles[a["url"]] = a
+
+    # Per-ticker feeds
+    for ticker in TOP_TICKERS:
+        for a in _fetch_rss(YF_TICKER_RSS.format(ticker=ticker)):
+            all_articles[a["url"]] = a
+
+    return list(all_articles.values())
+
 
 # ── Process one news article ──────────────────────────────────────────────────
 def process_article(article: dict):
     url      = article.get("url", "")
     headline = article.get("title", "").strip()
-    seen_dt  = article.get("seendate", "")
+    pub_date = article.get("pubDate", "")
 
     if not headline or not url or url in SEEN_URLS:
         return
@@ -106,7 +132,7 @@ def process_article(article: dict):
 
     detected_at = datetime.now(timezone.utc).isoformat()
     try:
-        article_date = pd.to_datetime(seen_dt[:8], format="%Y%m%d").isoformat()
+        article_date = parsedate_to_datetime(pub_date).isoformat()
     except Exception:
         article_date = detected_at
 
@@ -118,32 +144,31 @@ def process_article(article: dict):
             asset_class = result["asset_class"]
 
             row = {
-                "url":             url,
-                "headline":        headline,
-                "article_date":    article_date,
-                "detected_at":     detected_at,
-                "asset":           asset,
-                "asset_class":     asset_class,
-                "sentiment":       result["sentiment"],
-                "finbert_compound":result["finbert_compound"],
-                "direction_T1":    preds["T1"]["direction"],
-                "direction_T3":    preds["T3"]["direction"],
-                "direction_T5":    preds["T5"]["direction"],
-                "pred_return_T1":  preds["T1"]["return_pct"],
-                "pred_return_T3":  preds["T3"]["return_pct"],
-                "pred_return_T5":  preds["T5"]["return_pct"],
-                "confidence_T1":   preds["T1"]["confidence"],
-                "confidence_T3":   preds["T3"]["confidence"],
-                "confidence_T5":   preds["T5"]["confidence"],
-                "prob_up_T3":      preds["T3"]["prob_up"],
-                "prob_down_T3":    preds["T3"]["prob_down"],
-                "seconds_to_react":seconds_to_react(asset_class),
+                "url":              url,
+                "headline":         headline,
+                "article_date":     article_date,
+                "detected_at":      detected_at,
+                "asset":            asset,
+                "asset_class":      asset_class,
+                "sentiment":        result["sentiment"],
+                "finbert_compound": result["finbert_compound"],
+                "direction_T1":     preds["T1"]["direction"],
+                "direction_T3":     preds["T3"]["direction"],
+                "direction_T5":     preds["T5"]["direction"],
+                "pred_return_T1":   preds["T1"]["return_pct"],
+                "pred_return_T3":   preds["T3"]["return_pct"],
+                "pred_return_T5":   preds["T5"]["return_pct"],
+                "confidence_T1":    preds["T1"]["confidence"],
+                "confidence_T3":    preds["T3"]["confidence"],
+                "confidence_T5":    preds["T5"]["confidence"],
+                "prob_up_T3":       preds["T3"]["prob_up"],
+                "prob_down_T3":     preds["T3"]["prob_down"],
+                "seconds_to_react": seconds_to_react(asset_class),
             }
             insert_signal(row)
             log.info(f"  {asset} {preds['T3']['direction']} "
                      f"{preds['T3']['confidence']:.0%}  \"{headline[:60]}\"")
 
-            # Collect for email alert if high confidence and directional
             try:
                 from emailer import EMAIL_ENABLED, MIN_CONFIDENCE
                 if (EMAIL_ENABLED
@@ -173,11 +198,12 @@ def process_article(article: dict):
         except Exception as e:
             log.warning(f"Email alert error: {e}")
 
-# ── Main poll loop (called by APScheduler) ────────────────────────────────────
+
+# ── Main poll loop (called by APScheduler every 1 minute) ─────────────────────
 def poll():
-    log.info("Polling GDELT…")
+    log.info("Polling Yahoo Finance RSS...")
     articles = fetch_latest()
-    new = [a for a in articles if a.get("url","") not in SEEN_URLS]
-    log.info(f"  {len(articles)} articles, {len(new)} new")
+    new = [a for a in articles if a.get("url", "") not in SEEN_URLS]
+    log.info(f"  {len(articles)} articles fetched, {len(new)} new")
     for article in new:
         process_article(article)

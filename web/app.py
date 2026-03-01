@@ -144,7 +144,7 @@ def api_predict():
 from poller import poll
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(poll, "interval", minutes=2, id="gdelt_poll",
+scheduler.add_job(poll, "interval", minutes=1, id="yf_poll",
                   next_run_time=datetime.now())   # run immediately on start
 scheduler.start()
 
