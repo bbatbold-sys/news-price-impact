@@ -2,7 +2,7 @@
 Flask web app — real-time news impact dashboard.
 Run: python app.py
 """
-import os, sys, logging
+import os, sys, logging, threading
 from datetime import datetime, timezone
 from flask import Flask, render_template, jsonify
 from flask_cors import CORS
@@ -56,6 +56,33 @@ ASSET_NAMES = {
     "BTC-USD":"Bitcoin","ETH-USD":"Ethereum","USDT-USD":"Tether",
     "SOL-USD":"Solana","XRP-USD":"XRP",
 }
+
+# ── Live price cache ─────────────────────────────────────────────────────────
+_price_cache: dict = {}
+_price_lock  = threading.Lock()
+
+def _refresh_prices():
+    import yfinance as yf
+    all_syms = [s for cls_assets in ALL_ASSETS.values() for s in cls_assets]
+    try:
+        raw = yf.download(all_syms, period="5d", interval="1d",
+                          group_by="ticker", progress=False, auto_adjust=True)
+        new = {}
+        for sym in all_syms:
+            try:
+                col = raw[sym]["Close"] if len(all_syms) > 1 else raw["Close"]
+                col = col.dropna()
+                if len(col) >= 2:
+                    c0, c1 = float(col.iloc[-2]), float(col.iloc[-1])
+                    new[sym] = {"price":  round(c1, 4),
+                                "change": round((c1 - c0) / c0 * 100, 2)}
+            except Exception:
+                pass
+        with _price_lock:
+            _price_cache.update(new)
+        log.info(f"Prices refreshed: {len(new)} tickers")
+    except Exception as e:
+        log.warning(f"Price refresh failed: {e}")
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -126,6 +153,11 @@ def api_news():
         n["time_to_react"] = fmt_seconds(n.get("seconds_to_react"))
     return jsonify({"news": news})
 
+@app.route("/api/prices")
+def api_prices():
+    with _price_lock:
+        return jsonify({"prices": dict(_price_cache)})
+
 @app.route("/api/predict", methods=["POST"])
 def api_predict():
     from flask import request
@@ -146,6 +178,8 @@ from poller import poll
 scheduler = BackgroundScheduler()
 scheduler.add_job(poll, "interval", minutes=1, id="yf_poll",
                   next_run_time=datetime.now())   # run immediately on start
+scheduler.add_job(_refresh_prices, "interval", minutes=1, id="price_refresh",
+                  next_run_time=datetime.now())   # fetch live prices on start
 scheduler.start()
 
 if __name__ == "__main__":

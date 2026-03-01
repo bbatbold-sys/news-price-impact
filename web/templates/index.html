@@ -296,6 +296,21 @@
     .tab-pane { display:none; }
     .tab-pane.active { display:block; }
 
+    /* ═══════════════════════════════════════════════════════ MARKETS BAR */
+    .markets-bar {
+      display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+      padding:8px 16px; background:var(--bg2);
+      border-bottom:1px solid var(--border);
+      font-family:'JetBrains Mono',monospace; font-size:11px;
+    }
+    .mkt-label { color:var(--muted); font-size:9px; letter-spacing:1.5px; text-transform:uppercase; font-family:'Inter',sans-serif; }
+    .mkt-item  { display:flex; align-items:center; gap:5px; }
+    .mkt-sym   { color:var(--muted2); font-weight:600; }
+    .mkt-price { color:var(--text); }
+    .mkt-chg   { font-size:10px; }
+    .mkt-divider { color:var(--border2); }
+    .price-cell, .chg-cell { font-family:'JetBrains Mono',monospace; font-size:11px; white-space:nowrap; }
+
     /* ═══════════════════════════════════════════════════════ TABLE */
     .sig-table { width:100%; border-collapse:collapse; }
     .sig-table th {
@@ -514,6 +529,20 @@
 
     <!-- Signals -->
     <div class="panel" style="margin-top:12px">
+      <!-- Live markets ticker bar -->
+      <div class="markets-bar">
+        <span class="mkt-label">Markets</span>
+        <span class="mkt-item"><span class="mkt-sym">SPY</span> <span class="mkt-price" id="mp-SPY">—</span> <span class="mkt-chg" id="mc-SPY">—</span></span>
+        <span class="mkt-item"><span class="mkt-sym">QQQ</span> <span class="mkt-price" id="mp-QQQ">—</span> <span class="mkt-chg" id="mc-QQQ">—</span></span>
+        <span class="mkt-item"><span class="mkt-sym">IWM</span> <span class="mkt-price" id="mp-IWM">—</span> <span class="mkt-chg" id="mc-IWM">—</span></span>
+        <span class="mkt-divider">|</span>
+        <span class="mkt-item"><span class="mkt-sym">BTC</span> <span class="mkt-price" id="mp-BTC-USD">—</span> <span class="mkt-chg" id="mc-BTC-USD">—</span></span>
+        <span class="mkt-item"><span class="mkt-sym">ETH</span> <span class="mkt-price" id="mp-ETH-USD">—</span> <span class="mkt-chg" id="mc-ETH-USD">—</span></span>
+        <span class="mkt-divider">|</span>
+        <span class="mkt-item"><span class="mkt-sym">Gold</span> <span class="mkt-price" id="mp-GC=F">—</span> <span class="mkt-chg" id="mc-GC=F">—</span></span>
+        <span class="mkt-item"><span class="mkt-sym">Oil</span>  <span class="mkt-price" id="mp-CL=F">—</span> <span class="mkt-chg" id="mc-CL=F">—</span></span>
+      </div>
+
       <div class="tab-toolbar">
         <button class="tab-btn active" onclick="switchTab('stock',this)">
           <i class="bi bi-graph-up"></i> Stocks <span class="tab-n">{{ all_assets.stock|length }}</span>
@@ -545,15 +574,17 @@
             <thead>
               <tr>
                 <th onclick="sortTable('{{ cls }}',0)">Asset</th>
-                <th onclick="sortTable('{{ cls }}',1)">Signal</th>
-                <th onclick="sortTable('{{ cls }}',2)">Confidence</th>
-                <th onclick="sortTable('{{ cls }}',3)">T+1</th>
-                <th onclick="sortTable('{{ cls }}',4)">T+3</th>
-                <th onclick="sortTable('{{ cls }}',5)">T+5</th>
+                <th onclick="sortTable('{{ cls }}',1)">Price</th>
+                <th onclick="sortTable('{{ cls }}',2)">Chg%</th>
+                <th onclick="sortTable('{{ cls }}',3)">Signal</th>
+                <th onclick="sortTable('{{ cls }}',4)">Confidence</th>
+                <th onclick="sortTable('{{ cls }}',5)">T+1</th>
+                <th onclick="sortTable('{{ cls }}',6)">T+3</th>
+                <th onclick="sortTable('{{ cls }}',7)">T+5</th>
                 <th>Sentiment</th>
-                <th onclick="sortTable('{{ cls }}',7)">React In</th>
+                <th onclick="sortTable('{{ cls }}',9)">React In</th>
                 <th>Headline</th>
-                <th onclick="sortTable('{{ cls }}',9)">Age</th>
+                <th onclick="sortTable('{{ cls }}',11)">Age</th>
               </tr>
             </thead>
             <tbody id="tbody-{{ cls }}">
@@ -561,6 +592,8 @@
               <tr id="row-{{ a|replace('=','-')|replace('.','-') }}"
                   data-asset="{{ a }}" data-dir="" data-conf="0" data-ret="0" data-age="0">
                 <td><div class="asset-tick">{{ a }}</div><div class="asset-name">{{ asset_names.get(a,'') }}</div></td>
+                <td class="price-cell">—</td>
+                <td class="chg-cell">—</td>
                 <td colspan="9"><span class="waiting"><i class="bi bi-hourglass-split"></i> Awaiting signal…</span></td>
               </tr>
               {% endfor %}
@@ -799,8 +832,12 @@ function updateSignals(data) {
     const pf = Math.max(0, 1-(sig.prob_up||0)-(sig.prob_down||0));
     const pd = sig.prob_down ?? null;
 
+    const oldPrice = row.querySelector('.price-cell')?.innerHTML || '—';
+    const oldChg   = row.querySelector('.chg-cell')?.innerHTML   || '—';
     row.innerHTML = `
       <td><div class="asset-tick">${sig.asset}</div><div class="asset-name">${sig.name||''}</div></td>
+      <td class="price-cell">${oldPrice}</td>
+      <td class="chg-cell">${oldChg}</td>
       <td>${sigBadge(dir,conf)}</td>
       <td>${confCell(conf)}${probStrip(pu,pf,pd)}</td>
       <td>${ret(sig.pred_T1,sig.direction_T1)}</td>
@@ -926,6 +963,50 @@ async function runPredict() {
 
 $('pred-headline').addEventListener('keydown', e=>{ if(e.key==='Enter') runPredict(); });
 
+/* ─── live prices ─────────────────────────────────────────────────── */
+const MKT_BAR = {
+  'SPY':'SPY','QQQ':'QQQ','IWM':'IWM',
+  'BTC-USD':'BTC-USD','ETH-USD':'ETH-USD',
+  'GC=F':'GC=F','CL=F':'CL=F'
+};
+
+function fmtPrice(p) {
+  if (p >= 1000) return p.toLocaleString(undefined,{maximumFractionDigits:0});
+  if (p >= 1)    return p.toFixed(2);
+  return p.toFixed(4);
+}
+
+function updatePrices(pd) {
+  // Update all table rows
+  Object.entries(pd).forEach(([sym, p]) => {
+    const row = $('row-' + sym.replace(/[=.]/g,'-'));
+    if (!row) return;
+    const pc = row.querySelector('.price-cell');
+    const cc = row.querySelector('.chg-cell');
+    if (pc) pc.innerHTML = `$${fmtPrice(p.price)}`;
+    if (cc) {
+      const up = p.change >= 0;
+      cc.innerHTML = `<span style="color:${up?'var(--up)':'var(--down)'}">${up?'+':''}${p.change.toFixed(2)}%</span>`;
+    }
+  });
+  // Update markets bar
+  Object.keys(MKT_BAR).forEach(sym => {
+    const p = pd[sym]; if (!p) return;
+    const up = p.change >= 0;
+    const key = sym; // use sym as ID key
+    const pe = $('mp-'+key), ce = $('mc-'+key);
+    if (pe) pe.textContent = '$'+fmtPrice(p.price);
+    if (ce) { ce.textContent=(up?'+':'')+p.change.toFixed(2)+'%'; ce.style.color=up?'var(--up)':'var(--down)'; }
+  });
+}
+
+async function fetchPrices() {
+  try {
+    const d = await fetch('/api/prices').then(r=>r.json());
+    if (d.prices) updatePrices(d.prices);
+  } catch(e) {}
+}
+
 /* ─── auto-refresh ────────────────────────────────────────────────── */
 async function refresh() {
   try {
@@ -939,7 +1020,9 @@ async function refresh() {
 }
 
 refresh();
+fetchPrices();
 setInterval(refresh, 30000);
+setInterval(fetchPrices, 60000);
 </script>
 </body>
 </html>
