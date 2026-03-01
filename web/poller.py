@@ -1,6 +1,6 @@
 """
-GDELT poller — checks Yahoo Finance news every 5 minutes,
-scores with FinBERT, predicts impact, stores in DB.
+GDELT poller — checks Yahoo Finance news every 2 minutes,
+scores with FinBERT, predicts impact, stores in DB, sends email alerts.
 """
 import requests, time, logging
 from datetime import datetime, timedelta, timezone
@@ -13,10 +13,18 @@ from news_price_impact_v2 import ASSET_KEYWORDS
 
 log = logging.getLogger("poller")
 GDELT_API   = "https://api.gdeltproject.org/api/v2/doc/doc"
-POLL_WINDOW = 15   # fetch articles from last N minutes
+POLL_WINDOW = 20   # fetch articles from last N minutes (GDELT ~15 min delay)
 ET_TZ       = pytz.timezone("US/Eastern")
 
 SEEN_URLS: set = set()
+
+def _fmt_react(s):
+    if s is None: return "Unknown"
+    s = int(s)
+    if s < 60:   return f"{s}s"
+    if s < 3600: return f"{s//60}m {s%60}s"
+    h = s // 3600; m = (s % 3600) // 60
+    return f"{h}h {m}m" if m else f"{h}h"
 
 # ── Market hours helper ───────────────────────────────────────────────────────
 def seconds_to_react(asset_class: str) -> int:
@@ -102,6 +110,7 @@ def process_article(article: dict):
     except Exception:
         article_date = detected_at
 
+    alert_signals = []
     for asset in assets:
         try:
             result      = predict(headline, asset)
@@ -133,8 +142,36 @@ def process_article(article: dict):
             insert_signal(row)
             log.info(f"  {asset} {preds['T3']['direction']} "
                      f"{preds['T3']['confidence']:.0%}  \"{headline[:60]}\"")
+
+            # Collect for email alert if high confidence and directional
+            try:
+                from emailer import EMAIL_ENABLED, MIN_CONFIDENCE
+                if (EMAIL_ENABLED
+                        and preds["T3"]["direction"] != "FLAT"
+                        and preds["T3"]["confidence"] >= MIN_CONFIDENCE):
+                    from app import ASSET_NAMES
+                    alert_signals.append({
+                        "asset":         asset,
+                        "name":          ASSET_NAMES.get(asset, asset),
+                        "asset_class":   asset_class,
+                        "headline":      headline,
+                        "direction_T3":  preds["T3"]["direction"],
+                        "confidence_T3": preds["T3"]["confidence"],
+                        "pred_T3":       preds["T3"]["return_pct"],
+                        "sentiment":     result["sentiment"],
+                        "time_to_react": _fmt_react(seconds_to_react(asset_class)),
+                    })
+            except Exception:
+                pass
         except Exception as e:
             log.warning(f"  predict error for {asset}: {e}")
+
+    if alert_signals:
+        try:
+            from emailer import send_signal_email
+            send_signal_email(alert_signals)
+        except Exception as e:
+            log.warning(f"Email alert error: {e}")
 
 # ── Main poll loop (called by APScheduler) ────────────────────────────────────
 def poll():
