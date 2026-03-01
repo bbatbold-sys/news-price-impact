@@ -176,9 +176,14 @@ if __name__ == "__main__":
                 for line in proc.stdout:
                     m = _re.search(r"https://[a-z0-9\-]+\.trycloudflare\.com", line)
                     if m:
+                        import tunnel as _tunnel
+                        _tunnel.PUBLIC_URL = m.group()
+                        # Write to file so emailer (same process) can read it
+                        with open("public_url.txt", "w") as f:
+                            f.write(m.group())
                         log.info(f"")
                         log.info(f"  PUBLIC DASHBOARD URL (any device, anywhere):")
-                        log.info(f"  {m.group()}")
+                        log.info(f"  {_tunnel.PUBLIC_URL}")
                         log.info(f"")
                         break
             except Exception as e:

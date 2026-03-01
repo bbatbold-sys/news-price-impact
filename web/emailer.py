@@ -217,16 +217,17 @@ def send_signal_email(signals: list[dict]):
         cards_html  += _signal_card(s, article_text)
 
     try:
-        from email_config import NGROK_TOKEN
-        dashboard_url = "http://localhost:5000"
-        # pyngrok stores the active tunnel URL globally
-        try:
-            from pyngrok import ngrok as pyngrok_mod
-            tunnels = pyngrok_mod.get_tunnels()
-            if tunnels:
-                dashboard_url = tunnels[0].public_url
-        except Exception:
-            pass
+        import tunnel as _tunnel
+        dashboard_url = _tunnel.PUBLIC_URL
+        # Also check file (updated by tunnel thread)
+        import os as _os
+        _url_file = _os.path.join(_os.path.dirname(__file__), "public_url.txt")
+        if _os.path.exists(_url_file):
+            with open(_url_file) as f:
+                _url = f.read().strip()
+            if _url:
+                dashboard_url = _url
+                _tunnel.PUBLIC_URL = _url
     except Exception:
         dashboard_url = "http://localhost:5000"
 

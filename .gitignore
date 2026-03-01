@@ -19,6 +19,7 @@ venv/
 # Credentials (never commit)
 web/email_config.py
 web/signals.db
+web/public_url.txt
 
 # OS
 .DS_Store
