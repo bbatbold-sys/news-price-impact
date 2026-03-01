@@ -2,9 +2,11 @@
 Flask web app — real-time news impact dashboard.
 Run: python app.py
 """
-import os, sys, logging, threading
+import os, sys, logging, threading, json
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue, Empty
 from datetime import datetime, timezone
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -57,32 +59,48 @@ ASSET_NAMES = {
     "SOL-USD":"Solana","XRP-USD":"XRP",
 }
 
-# ── Live price cache ─────────────────────────────────────────────────────────
+# ── Live price streaming (SSE) ────────────────────────────────────────────────
 _price_cache: dict = {}
 _price_lock  = threading.Lock()
+_price_subs: list = []
+_subs_lock   = threading.Lock()
+
+def _push_prices(prices: dict):
+    """Push latest prices to all connected SSE clients."""
+    msg = "data: " + json.dumps(prices) + "\n\n"
+    with _subs_lock:
+        dead = []
+        for q in _price_subs:
+            try:    q.put_nowait(msg)
+            except: dead.append(q)
+        for q in dead:
+            _price_subs.remove(q)
+
+def _fetch_one(sym: str):
+    import yfinance as yf
+    try:
+        fi    = yf.Ticker(sym).fast_info
+        price = fi.last_price
+        prev  = fi.previous_close
+        if price and prev:
+            p, c = float(price), float(prev)
+            return sym, {"price": round(p, 4), "change": round((p - c) / c * 100, 2)}
+    except Exception:
+        pass
+    return sym, None
 
 def _refresh_prices():
-    import yfinance as yf
-    all_syms = [s for cls_assets in ALL_ASSETS.values() for s in cls_assets]
-    try:
-        raw = yf.download(all_syms, period="5d", interval="1d",
-                          group_by="ticker", progress=False, auto_adjust=True)
-        new = {}
-        for sym in all_syms:
-            try:
-                col = raw[sym]["Close"] if len(all_syms) > 1 else raw["Close"]
-                col = col.dropna()
-                if len(col) >= 2:
-                    c0, c1 = float(col.iloc[-2]), float(col.iloc[-1])
-                    new[sym] = {"price":  round(c1, 4),
-                                "change": round((c1 - c0) / c0 * 100, 2)}
-            except Exception:
-                pass
+    all_syms = [s for v in ALL_ASSETS.values() for s in v]
+    new = {}
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        for sym, data in zip(all_syms, ex.map(_fetch_one, all_syms)):
+            if data[1]:
+                new[data[0]] = data[1]
+    if new:
         with _price_lock:
             _price_cache.update(new)
-        log.info(f"Prices refreshed: {len(new)} tickers")
-    except Exception as e:
-        log.warning(f"Price refresh failed: {e}")
+        _push_prices(dict(_price_cache))
+        log.info(f"Prices pushed: {len(new)}/{len(all_syms)} tickers")
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -158,6 +176,34 @@ def api_prices():
     with _price_lock:
         return jsonify({"prices": dict(_price_cache)})
 
+@app.route("/api/prices/stream")
+def price_stream():
+    q = Queue(maxsize=10)
+    with _subs_lock:
+        _price_subs.append(q)
+
+    def generate():
+        try:
+            with _price_lock:
+                snap = dict(_price_cache)
+            if snap:
+                yield "data: " + json.dumps(snap) + "\n\n"
+            while True:
+                try:
+                    yield q.get(timeout=25)
+                except Empty:
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            with _subs_lock:
+                try: _price_subs.remove(q)
+                except ValueError: pass
+
+    return Response(stream_with_context(generate()),
+                    mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 @app.route("/api/predict", methods=["POST"])
 def api_predict():
     from flask import request
@@ -178,8 +224,8 @@ from poller import poll
 scheduler = BackgroundScheduler()
 scheduler.add_job(poll, "interval", minutes=1, id="yf_poll",
                   next_run_time=datetime.now())   # run immediately on start
-scheduler.add_job(_refresh_prices, "interval", minutes=1, id="price_refresh",
-                  next_run_time=datetime.now())   # fetch live prices on start
+scheduler.add_job(_refresh_prices, "interval", seconds=30, id="price_refresh",
+                  next_run_time=datetime.now())   # real-time prices every 30s
 scheduler.start()
 
 if __name__ == "__main__":

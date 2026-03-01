@@ -310,6 +310,10 @@
     .mkt-chg   { font-size:10px; }
     .mkt-divider { color:var(--border2); }
     .price-cell, .chg-cell { font-family:'JetBrains Mono',monospace; font-size:11px; white-space:nowrap; }
+    @keyframes flashG { 0%{background:rgba(0,208,132,.45);color:var(--up)}  80%{background:rgba(0,208,132,.1)} 100%{background:transparent} }
+    @keyframes flashR { 0%{background:rgba(255,69,96,.45); color:var(--down)} 80%{background:rgba(255,69,96,.1)} 100%{background:transparent} }
+    .px-up   { animation:flashG 1.6s ease-out forwards; border-radius:4px; padding:1px 3px; }
+    .px-down { animation:flashR 1.6s ease-out forwards; border-radius:4px; padding:1px 3px; }
 
     /* ═══════════════════════════════════════════════════════ TABLE */
     .sig-table { width:100%; border-collapse:collapse; }
@@ -963,49 +967,57 @@ async function runPredict() {
 
 $('pred-headline').addEventListener('keydown', e=>{ if(e.key==='Enter') runPredict(); });
 
-/* ─── live prices ─────────────────────────────────────────────────── */
-const MKT_BAR = {
-  'SPY':'SPY','QQQ':'QQQ','IWM':'IWM',
-  'BTC-USD':'BTC-USD','ETH-USD':'ETH-USD',
-  'GC=F':'GC=F','CL=F':'CL=F'
-};
+/* ─── live prices via SSE ─────────────────────────────────────────── */
+const MKT_SYMS = ['SPY','QQQ','IWM','BTC-USD','ETH-USD','GC=F','CL=F'];
+const _lastPx  = {};  // track previous prices for flash animation
 
 function fmtPrice(p) {
-  if (p >= 1000) return p.toLocaleString(undefined,{maximumFractionDigits:0});
+  if (p >= 1000) return p.toLocaleString(undefined, {maximumFractionDigits:2});
   if (p >= 1)    return p.toFixed(2);
   return p.toFixed(4);
 }
 
 function updatePrices(pd) {
-  // Update all table rows
   Object.entries(pd).forEach(([sym, p]) => {
-    const row = $('row-' + sym.replace(/[=.]/g,'-'));
-    if (!row) return;
-    const pc = row.querySelector('.price-cell');
-    const cc = row.querySelector('.chg-cell');
-    if (pc) pc.innerHTML = `$${fmtPrice(p.price)}`;
-    if (cc) {
-      const up = p.change >= 0;
-      cc.innerHTML = `<span style="color:${up?'var(--up)':'var(--down)'}">${up?'+':''}${p.change.toFixed(2)}%</span>`;
+    const rowId = 'row-' + sym.replace(/[=.]/g,'-');
+    const row = $(rowId);
+    if (row) {
+      const pc  = row.querySelector('.price-cell');
+      const cc  = row.querySelector('.chg-cell');
+      const old = _lastPx[sym];
+      const priceStr = '$' + fmtPrice(p.price);
+      if (pc) {
+        if (old !== undefined && old !== p.price) {
+          const cls = p.price > old ? 'px-up' : 'px-down';
+          const arrow = p.price > old ? '↑' : '↓';
+          pc.innerHTML = `<span class="${cls}">${arrow} ${priceStr}</span>`;
+        } else {
+          pc.textContent = priceStr;
+        }
+      }
+      if (cc) {
+        const up = p.change >= 0;
+        cc.innerHTML = `<span style="color:${up?'var(--up)':'var(--down)'}">${up?'+':''}${p.change.toFixed(2)}%</span>`;
+      }
+      _lastPx[sym] = p.price;
     }
-  });
-  // Update markets bar
-  Object.keys(MKT_BAR).forEach(sym => {
-    const p = pd[sym]; if (!p) return;
-    const up = p.change >= 0;
-    const key = sym; // use sym as ID key
-    const pe = $('mp-'+key), ce = $('mc-'+key);
-    if (pe) pe.textContent = '$'+fmtPrice(p.price);
-    if (ce) { ce.textContent=(up?'+':'')+p.change.toFixed(2)+'%'; ce.style.color=up?'var(--up)':'var(--down)'; }
+    // Update markets bar
+    if (MKT_SYMS.includes(sym)) {
+      const up = p.change >= 0;
+      const pe = $('mp-'+sym), ce = $('mc-'+sym);
+      if (pe) pe.textContent = '$' + fmtPrice(p.price);
+      if (ce) { ce.textContent=(up?'+':'')+p.change.toFixed(2)+'%'; ce.style.color=up?'var(--up)':'var(--down)'; }
+    }
   });
 }
 
-async function fetchPrices() {
-  try {
-    const d = await fetch('/api/prices').then(r=>r.json());
-    if (d.prices) updatePrices(d.prices);
-  } catch(e) {}
+/* Connect SSE — browser auto-reconnects on drop */
+function connectPriceStream() {
+  const es = new EventSource('/api/prices/stream');
+  es.onmessage = e => { try { updatePrices(JSON.parse(e.data)); } catch(_) {} };
+  es.onerror   = () => { es.close(); setTimeout(connectPriceStream, 5000); };
 }
+connectPriceStream();
 
 /* ─── auto-refresh ────────────────────────────────────────────────── */
 async function refresh() {
@@ -1020,9 +1032,7 @@ async function refresh() {
 }
 
 refresh();
-fetchPrices();
 setInterval(refresh, 30000);
-setInterval(fetchPrices, 60000);
 </script>
 </body>
 </html>
