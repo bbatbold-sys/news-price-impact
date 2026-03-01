@@ -93,7 +93,8 @@ def _fetch_rss(url: str) -> list[dict]:
             link     = item.findtext("link",  "").strip()
             pub_date = item.findtext("pubDate", "")
             if title and link:
-                articles.append({"title": title, "url": link, "pubDate": pub_date})
+                desc = item.findtext("description", "").strip()
+                articles.append({"title": title, "url": link, "pubDate": pub_date, "description": desc})
         return articles
     except Exception as e:
         log.warning(f"RSS fetch error ({url}): {e}")
@@ -118,9 +119,10 @@ def fetch_latest() -> list[dict]:
 
 # ── Process one news article ──────────────────────────────────────────────────
 def process_article(article: dict):
-    url      = article.get("url", "")
-    headline = article.get("title", "").strip()
-    pub_date = article.get("pubDate", "")
+    url         = article.get("url", "")
+    headline    = article.get("title", "").strip()
+    pub_date    = article.get("pubDate", "")
+    description = article.get("description", "")
 
     if not headline or not url or url in SEEN_URLS:
         return
@@ -180,10 +182,14 @@ def process_article(article: dict):
                         "name":          ASSET_NAMES.get(asset, asset),
                         "asset_class":   asset_class,
                         "headline":      headline,
+                        "description":   description,
+                        "url":           url,
                         "direction_T3":  preds["T3"]["direction"],
                         "confidence_T3": preds["T3"]["confidence"],
                         "pred_T3":       preds["T3"]["return_pct"],
                         "sentiment":     result["sentiment"],
+                        "finbert_pos":   result["finbert_pos"],
+                        "finbert_neg":   result["finbert_neg"],
                         "time_to_react": _fmt_react(seconds_to_react(asset_class)),
                     })
             except Exception:

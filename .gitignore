@@ -23,3 +23,4 @@ web/signals.db
 # OS
 .DS_Store
 Thumbs.db
+cloudflared.exe

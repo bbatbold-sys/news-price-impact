@@ -149,5 +149,42 @@ scheduler.add_job(poll, "interval", minutes=1, id="yf_poll",
 scheduler.start()
 
 if __name__ == "__main__":
-    log.info("Starting News Impact Dashboard on http://localhost:5000")
+    import socket
+    local_ip = "localhost"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+
+    log.info(f"Dashboard: http://localhost:5000")
+    log.info(f"Same-network: http://{local_ip}:5000")
+
+    # ── Cloudflare Tunnel — public URL, no account needed ─────────────────────
+    import subprocess, threading, re as _re
+    _cf_exe = os.path.join(os.path.dirname(__file__), "..", "cloudflared.exe")
+    if os.path.exists(_cf_exe):
+        def _run_tunnel():
+            try:
+                proc = subprocess.Popen(
+                    [_cf_exe, "tunnel", "--url", "http://localhost:5000"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    encoding="utf-8", errors="replace"
+                )
+                for line in proc.stdout:
+                    m = _re.search(r"https://[a-z0-9\-]+\.trycloudflare\.com", line)
+                    if m:
+                        log.info(f"")
+                        log.info(f"  PUBLIC DASHBOARD URL (any device, anywhere):")
+                        log.info(f"  {m.group()}")
+                        log.info(f"")
+                        break
+            except Exception as e:
+                log.warning(f"Cloudflare tunnel error: {e}")
+        threading.Thread(target=_run_tunnel, daemon=True).start()
+    else:
+        log.info(f"Same-network access: http://{local_ip}:5000")
+
     app.run(debug=False, host="0.0.0.0", port=5000, use_reloader=False)
