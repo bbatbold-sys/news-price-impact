@@ -60,6 +60,10 @@ _price_lock  = threading.Lock()
 _price_subs: list = []
 _subs_lock   = threading.Lock()
 
+import requests as _requests
+
+_YF_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
 def _push_prices(prices: dict):
     msg = "data: " + json.dumps(prices) + "\n\n"
     with _subs_lock:
@@ -70,18 +74,47 @@ def _push_prices(prices: dict):
         for q in dead:
             _price_subs.remove(q)
 
-def _refresh_prices():
-    """Load prices from file exported by local machine."""
+def _fetch_prices_yf(symbols: list) -> dict:
+    """Fetch prices via Yahoo Finance quote API — no yfinance package needed."""
+    result = {}
+    batch = ",".join(symbols)
     try:
-        with open(PRICES_FILE) as f:
-            new = json.load(f)
-        if new:
-            with _price_lock:
-                _price_cache.update(new)
-            _push_prices(dict(_price_cache))
-            log.info(f"Prices loaded from file: {len(new)} tickers")
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={batch}&fields=regularMarketPrice,regularMarketPreviousClose"
+        r = _requests.get(url, headers=_YF_HEADERS, timeout=15)
+        data = r.json()
+        for q in data.get("quoteResponse", {}).get("result", []):
+            sym   = q.get("symbol", "")
+            price = q.get("regularMarketPrice")
+            prev  = q.get("regularMarketPreviousClose")
+            if sym and price and prev:
+                result[sym] = {
+                    "price":  round(float(price), 4),
+                    "change": round((float(price) - float(prev)) / float(prev) * 100, 2),
+                }
     except Exception as e:
-        log.debug(f"Price file read error: {e}")
+        log.debug(f"YF API error: {e}")
+    return result
+
+def _refresh_prices():
+    """Fetch live prices from Yahoo Finance API, fall back to file."""
+    all_syms = [s for v in ALL_ASSETS.values() for s in v]
+    new = {}
+    # Fetch in batches of 20
+    for i in range(0, len(all_syms), 20):
+        new.update(_fetch_prices_yf(all_syms[i:i+20]))
+    # Fall back to file if API returned nothing
+    if not new:
+        try:
+            with open(PRICES_FILE) as f:
+                new = json.load(f)
+            log.info("Prices loaded from fallback file")
+        except Exception:
+            pass
+    if new:
+        with _price_lock:
+            _price_cache.update(new)
+        _push_prices(dict(_price_cache))
+        log.info(f"Prices refreshed: {len(new)} tickers")
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
