@@ -69,8 +69,8 @@ def setup_email_config():
     sender    = os.environ.get("SENDER_EMAIL", "")
     password  = os.environ.get("SENDER_PASSWORD", "")
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    min_conf  = float(os.environ.get("MIN_CONFIDENCE", "0.62"))
+    smtp_port = int(os.environ.get("SMTP_PORT", "") or "587")
+    min_conf  = float(os.environ.get("MIN_CONFIDENCE", "") or "0.62")
 
     with open(cfg_path, "w") as f:
         f.write(f'RECIPIENT_EMAIL = "{recipient}"\n')
