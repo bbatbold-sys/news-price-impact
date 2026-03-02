@@ -62,7 +62,7 @@ jobs:
         if: steps.heartbeat.outputs.skip == 'false'
         run: |
           pip install --upgrade pip
-          pip install requests pytz pandas numpy scikit-learn joblib beautifulsoup4 yfinance transformers
+          pip install requests pytz pandas numpy scikit-learn joblib beautifulsoup4 yfinance transformers matplotlib seaborn xgboost lightgbm optuna
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       # ── 6. Run the cloud poller ───────────────────────────────────────────────
