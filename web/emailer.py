@@ -267,19 +267,7 @@ def send_signal_email(signals: list[dict]):
     for s in signals:
         cards_html += _signal_card(s, scrape_article(s.get("url", "")))
 
-    try:
-        import tunnel as _tunnel
-        dashboard_url = _tunnel.PUBLIC_URL
-        import os as _os
-        _url_file = _os.path.join(_os.path.dirname(__file__), "public_url.txt")
-        if _os.path.exists(_url_file):
-            with open(_url_file) as f:
-                _url = f.read().strip()
-            if _url:
-                dashboard_url = _url
-                _tunnel.PUBLIC_URL = _url
-    except Exception:
-        dashboard_url = "http://localhost:5000"
+    dashboard_url = "https://news-pulse-dashboard1.onrender.com"
 
     html = f"""<!DOCTYPE html>
 <html><body style="font-family:Arial,Helvetica,sans-serif;background:{BG};color:{TEXT};
