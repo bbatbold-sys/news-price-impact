@@ -1098,6 +1098,11 @@ $('pred-headline').addEventListener('keydown', e=>{ if(e.key==='Enter') runPredi
 const MKT_SYMS = ['SPY','QQQ','IWM','BTC-USD','ETH-USD','GC=F','CL=F'];
 const _lastPx  = {};  // track previous prices for flash animation
 
+// Server-injected prices (available immediately on page load)
+{% if initial_prices is defined and initial_prices %}
+(function(){ updatePrices({{ initial_prices | tojson }}); })();
+{% endif %}
+
 function fmtPrice(p) {
   if (p >= 1000) return p.toLocaleString(undefined, {maximumFractionDigits:2});
   if (p >= 1)    return p.toFixed(2);

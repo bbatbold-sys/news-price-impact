@@ -97,7 +97,14 @@ def fmt_seconds(s):
 
 @app.route("/")
 def index():
-    return render_template("index.html", all_assets=ALL_ASSETS, asset_names=ASSET_NAMES)
+    try:
+        with open(PRICES_FILE) as f:
+            initial_prices = json.load(f)
+    except Exception:
+        initial_prices = {}
+    return render_template("index.html", all_assets=ALL_ASSETS,
+                           asset_names=ASSET_NAMES,
+                           initial_prices=initial_prices)
 
 @app.route("/api/signals")
 def api_signals():
