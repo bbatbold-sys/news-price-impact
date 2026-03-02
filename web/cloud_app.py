@@ -12,9 +12,9 @@ from flask_cors import CORS
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("cloud_app")
 
-REPO_ROOT     = os.path.join(os.path.dirname(__file__), "..")
-EXPORT_FILE   = os.path.join(REPO_ROOT, "signals_export.json")
-PRICES_FILE   = os.path.join(REPO_ROOT, "prices_export.json")
+WEB_DIR       = os.path.dirname(os.path.abspath(__file__))
+EXPORT_FILE   = os.path.join(WEB_DIR, "signals_export.json")
+PRICES_FILE   = os.path.join(WEB_DIR, "prices_export.json")
 
 ALL_ASSETS = {
     "stock": ["NVDA","TSLA","AAPL","AMD","AMZN","META","MSFT","GOOGL","PLTR",

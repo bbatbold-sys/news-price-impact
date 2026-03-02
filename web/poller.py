@@ -51,7 +51,7 @@ def _sync_to_github():
         try:
             from db import recent_news
             signals = recent_news(200)
-            export_path = os.path.join(_REPO_ROOT, "signals_export.json")
+            export_path = os.path.join(os.path.dirname(__file__), "signals_export.json")
             with open(export_path, "w") as f:
                 json.dump(signals, f)
         except Exception as e:
@@ -62,7 +62,7 @@ def _sync_to_github():
             try:
                 repo = os.path.abspath(_REPO_ROOT)
                 subprocess.run(["git", "add", "seen_urls.json", "heartbeat.txt",
-                                "signals_export.json", "prices_export.json"],
+                                "web/signals_export.json", "web/prices_export.json"],
                                cwd=repo, capture_output=True, timeout=15)
                 res = subprocess.run(
                     ["git", "commit", "-m", "chore: local poller sync [skip ci]"],
