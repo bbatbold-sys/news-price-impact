@@ -267,7 +267,7 @@ def send_signal_email(signals: list[dict]):
     for s in signals:
         cards_html += _signal_card(s, scrape_article(s.get("url", "")))
 
-    dashboard_url = "https://news-pulse-dashboard1.onrender.com"
+    dashboard_url = "https://news-pulse-dashboard-1.onrender.com"
 
     html = f"""<!DOCTYPE html>
 <html><body style="font-family:Arial,Helvetica,sans-serif;background:{BG};color:{TEXT};
