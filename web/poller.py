@@ -47,11 +47,22 @@ def _sync_to_github():
         with open(_SEEN_FILE, "w") as f:
             json.dump(sorted(SEEN_URLS)[-10_000:], f)
 
+        # Export latest signals for cloud dashboard
+        try:
+            from db import recent_news
+            signals = recent_news(200)
+            export_path = os.path.join(_REPO_ROOT, "signals_export.json")
+            with open(export_path, "w") as f:
+                json.dump(signals, f)
+        except Exception as e:
+            log.debug(f"Signal export error: {e}")
+
         # Git push in background — won't block the poller
         def _push():
             try:
                 repo = os.path.abspath(_REPO_ROOT)
-                subprocess.run(["git", "add", "seen_urls.json", "heartbeat.txt"],
+                subprocess.run(["git", "add", "seen_urls.json", "heartbeat.txt",
+                                "signals_export.json"],
                                cwd=repo, capture_output=True, timeout=15)
                 res = subprocess.run(
                     ["git", "commit", "-m", "chore: local poller sync [skip ci]"],
