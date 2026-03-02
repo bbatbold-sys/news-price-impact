@@ -101,6 +101,14 @@ def _refresh_prices():
             _price_cache.update(new)
         _push_prices(dict(_price_cache))
         log.info(f"Prices pushed: {len(new)}/{len(all_syms)} tickers")
+        # Export prices to file for Render cloud dashboard
+        try:
+            import json as _json, os as _os
+            _prices_file = _os.path.join(_os.path.dirname(__file__), "..", "prices_export.json")
+            with open(_prices_file, "w") as _f:
+                _json.dump(dict(_price_cache), _f)
+        except Exception:
+            pass
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)

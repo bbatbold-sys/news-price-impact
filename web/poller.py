@@ -62,7 +62,7 @@ def _sync_to_github():
             try:
                 repo = os.path.abspath(_REPO_ROOT)
                 subprocess.run(["git", "add", "seen_urls.json", "heartbeat.txt",
-                                "signals_export.json"],
+                                "signals_export.json", "prices_export.json"],
                                cwd=repo, capture_output=True, timeout=15)
                 res = subprocess.run(
                     ["git", "commit", "-m", "chore: local poller sync [skip ci]"],

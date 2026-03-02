@@ -5,7 +5,6 @@ Fetches live prices from yfinance.
 """
 import os, sys, json, logging, threading
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 from flask import Flask, render_template, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -13,8 +12,9 @@ from flask_cors import CORS
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("cloud_app")
 
-REPO_ROOT   = os.path.join(os.path.dirname(__file__), "..")
-EXPORT_FILE = os.path.join(REPO_ROOT, "signals_export.json")
+REPO_ROOT     = os.path.join(os.path.dirname(__file__), "..")
+EXPORT_FILE   = os.path.join(REPO_ROOT, "signals_export.json")
+PRICES_FILE   = os.path.join(REPO_ROOT, "prices_export.json")
 
 ALL_ASSETS = {
     "stock": ["NVDA","TSLA","AAPL","AMD","AMZN","META","MSFT","GOOGL","PLTR",
@@ -70,31 +70,18 @@ def _push_prices(prices: dict):
         for q in dead:
             _price_subs.remove(q)
 
-def _fetch_one(sym: str):
-    import yfinance as yf
-    try:
-        fi = yf.Ticker(sym).fast_info
-        price = fi.last_price
-        prev  = fi.previous_close
-        if price and prev:
-            p, c = float(price), float(prev)
-            return sym, {"price": round(p, 4), "change": round((p - c) / c * 100, 2)}
-    except Exception:
-        pass
-    return sym, None
-
 def _refresh_prices():
-    all_syms = [s for v in ALL_ASSETS.values() for s in v]
-    new = {}
-    with ThreadPoolExecutor(max_workers=12) as ex:
-        for data in ex.map(_fetch_one, all_syms):
-            if data[1]:
-                new[data[0]] = data[1]
-    if new:
-        with _price_lock:
-            _price_cache.update(new)
-        _push_prices(dict(_price_cache))
-        log.info(f"Prices refreshed: {len(new)}/{len(all_syms)}")
+    """Load prices from file exported by local machine."""
+    try:
+        with open(PRICES_FILE) as f:
+            new = json.load(f)
+        if new:
+            with _price_lock:
+                _price_cache.update(new)
+            _push_prices(dict(_price_cache))
+            log.info(f"Prices loaded from file: {len(new)} tickers")
+    except Exception as e:
+        log.debug(f"Price file read error: {e}")
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
