@@ -9,6 +9,8 @@ jobs:
   poll-and-alert:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    permissions:
+      contents: write
 
     steps:
       # ── 1. Checkout repo ─────────────────────────────────────────────────────
