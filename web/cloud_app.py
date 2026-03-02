@@ -144,7 +144,14 @@ def api_news():
 @app.route("/api/prices")
 def api_prices():
     with _price_lock:
-        return jsonify({"prices": dict(_price_cache)})
+        cache = dict(_price_cache)
+    if not cache:
+        try:
+            with open(PRICES_FILE) as f:
+                cache = json.load(f)
+        except Exception:
+            pass
+    return jsonify({"prices": cache})
 
 @app.route("/api/prices/stream")
 def price_stream():
@@ -172,12 +179,14 @@ def price_stream():
                     mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-# ── Scheduler: refresh prices every 60s ───────────────────────────────────────
+# ── Load prices immediately at startup (synchronous) ─────────────────────────
+_refresh_prices()
+
+# ── Scheduler: reload prices every 60s ────────────────────────────────────────
 from apscheduler.schedulers.background import BackgroundScheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(_refresh_prices, "interval", seconds=60)
 scheduler.start()
-threading.Thread(target=_refresh_prices, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

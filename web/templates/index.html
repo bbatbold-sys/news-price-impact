@@ -1146,6 +1146,17 @@ function connectPriceStream() {
 }
 connectPriceStream();
 
+// Fallback: also poll /api/prices every 30s in case SSE fails
+async function pollPrices() {
+  try {
+    const r = await fetch('/api/prices');
+    const d = await r.json();
+    if (d.prices && Object.keys(d.prices).length > 0) updatePrices(d.prices);
+  } catch(_) {}
+}
+pollPrices();
+setInterval(pollPrices, 30000);
+
 /* ─── auto-refresh ────────────────────────────────────────────────── */
 async function refresh() {
   try {
