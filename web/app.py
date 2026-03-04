@@ -179,6 +179,17 @@ def api_news():
         n["time_to_react"] = fmt_seconds(n.get("seconds_to_react"))
     return jsonify({"news": news})
 
+@app.route("/api/extreme")
+def api_extreme():
+    import json as _json
+    path = os.path.join(os.path.dirname(__file__), "extreme_alerts.json")
+    try:
+        with open(path) as f:
+            alerts = _json.load(f)
+    except Exception:
+        alerts = []
+    return jsonify({"alerts": alerts})
+
 @app.route("/api/prices")
 def api_prices():
     with _price_lock:

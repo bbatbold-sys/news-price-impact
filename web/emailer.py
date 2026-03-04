@@ -335,3 +335,142 @@ def send_signal_email(signals: list[dict]):
         log.info(f"Email sent: {count} signal(s) to {RECIPIENT_EMAIL}")
     except Exception as e:
         log.warning(f"Email send failed: {e}")
+
+
+# ── Extreme / Breaking News alert ─────────────────────────────────────────────
+def send_extreme_alert(alerts: list[dict], headline: str, description: str,
+                       url: str, article_text: str = ""):
+    """Send a high-priority breaking news email with full article content."""
+    if not EMAIL_ENABLED or not alerts:
+        return
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ORANGE  = "#f97316"
+    RED     = "#ef4444"
+
+    # Build recommendation cards
+    rec_cards = ""
+    for a in alerts:
+        color = UP if a["action"] == "BUY" else DOWN
+        arrow = "↑" if a["action"] == "BUY" else "↓"
+        rec_cards += f"""
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="background:{SURFACE2};border:1px solid {color};border-left:5px solid {color};
+              border-radius:10px;margin:10px 0;overflow:hidden">
+  <tr>
+    <td style="padding:16px 20px">
+      <div style="font-size:11px;color:{color};text-transform:uppercase;
+                  letter-spacing:2px;font-weight:700;margin-bottom:6px">
+        {arrow} ACTION REQUIRED
+      </div>
+      <div style="font-size:28px;font-weight:900;color:{color};font-family:monospace;letter-spacing:1px">
+        {a['action']} {a['asset']}
+      </div>
+      <div style="font-size:13px;color:{TEXT};margin-top:6px">{a['recommendation']}</div>
+      <div style="font-size:11px;color:{MUTED2};margin-top:4px">{a['reason']}</div>
+    </td>
+  </tr>
+</table>"""
+
+    hl_headline = highlight(headline)
+    hl_desc     = highlight(description) if description else ""
+    hl_body     = highlight(article_text) if article_text else ""
+
+    dashboard_url = "https://news-pulse-dashboard-1.onrender.com"
+
+    html = f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,Helvetica,sans-serif;background:{BG};color:{TEXT};margin:0;padding:20px 0">
+<div style="max-width:680px;margin:0 auto;padding:0 16px">
+
+  <!-- ═══ BREAKING HEADER ═══ -->
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:linear-gradient(135deg,#1a0505,#2d0a0a);
+                border:2px solid {RED};border-top:4px solid {ORANGE};
+                border-radius:14px;margin-bottom:20px;overflow:hidden">
+    <tr>
+      <td style="padding:22px 26px">
+        <div style="font-size:11px;color:{ORANGE};text-transform:uppercase;
+                    letter-spacing:3px;font-weight:800;margin-bottom:8px">
+          🚨 BREAKING — EXTREME EVENT DETECTED
+        </div>
+        <div style="font-size:28px;font-weight:900;color:#fff;line-height:1.2">
+          Immediate Trading Action Required
+        </div>
+        <div style="font-size:12px;color:{MUTED2};margin-top:8px">
+          {now_str} &bull; {len(alerts)} recommendation(s)
+        </div>
+        <div style="margin-top:14px">
+          <a href="{dashboard_url}"
+             style="background:{ORANGE};color:#000;padding:10px 20px;
+                    border-radius:8px;font-size:12px;font-weight:800;
+                    text-decoration:none;display:inline-block">
+            Open Dashboard →
+          </a>
+          &nbsp;
+          <a href="{url}"
+             style="background:{SURFACE2};color:{TEXT};padding:10px 20px;
+                    border:1px solid {BORDER};border-radius:8px;font-size:12px;
+                    font-weight:600;text-decoration:none;display:inline-block">
+            Read Full Article →
+          </a>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- ═══ RECOMMENDATIONS ═══ -->
+  {rec_cards}
+
+  <!-- ═══ HEADLINE ═══ -->
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:{SURFACE};border:1px solid {BORDER};border-radius:12px;
+                margin-top:16px;overflow:hidden">
+    <tr>
+      <td style="padding:16px 20px;border-bottom:1px solid {BORDER}">
+        <div style="font-size:9px;color:{MUTED};text-transform:uppercase;
+                    letter-spacing:1.5px;margin-bottom:8px">Breaking Headline</div>
+        <div style="font-size:16px;font-weight:700;color:{TEXT};line-height:1.5">
+          {hl_headline}
+        </div>
+      </td>
+    </tr>
+    {f'''<tr>
+      <td style="padding:16px 20px;border-bottom:1px solid {BORDER};background:{BG2}">
+        <div style="font-size:9px;color:{MUTED};text-transform:uppercase;
+                    letter-spacing:1.5px;margin-bottom:8px">Summary</div>
+        <div style="font-size:13px;color:{MUTED2};line-height:1.7">{hl_desc}</div>
+      </td>
+    </tr>''' if hl_desc else ''}
+    {f'''<tr>
+      <td style="padding:16px 20px;background:{BG2}">
+        <div style="font-size:9px;color:{MUTED};text-transform:uppercase;
+                    letter-spacing:1.5px;margin-bottom:8px">Full Article</div>
+        <div style="font-size:12px;color:{MUTED2};line-height:1.8">{hl_body}</div>
+      </td>
+    </tr>''' if hl_body else ''}
+  </table>
+
+  <div style="text-align:center;padding:20px;color:{MUTED};font-size:10px;margin-top:8px">
+    PULSE Extreme Alert &bull;
+    <a href="{dashboard_url}" style="color:#334155">{dashboard_url}</a>
+  </div>
+</div>
+</body></html>"""
+
+    subject = f"🚨 BREAKING: {alerts[0]['recommendation']} — {headline[:60]}"
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = SENDER_EMAIL
+    msg["To"]      = RECIPIENT_EMAIL
+    msg["X-Priority"] = "1"   # High priority flag
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
+        log.info(f"EXTREME alert email sent: {subject[:80]}")
+    except Exception as e:
+        log.warning(f"Extreme email send failed: {e}")

@@ -12,9 +12,10 @@ from flask_cors import CORS
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("cloud_app")
 
-WEB_DIR       = os.path.dirname(os.path.abspath(__file__))
-EXPORT_FILE   = os.path.join(WEB_DIR, "signals_export.json")
-PRICES_FILE   = os.path.join(WEB_DIR, "prices_export.json")
+WEB_DIR        = os.path.dirname(os.path.abspath(__file__))
+EXPORT_FILE    = os.path.join(WEB_DIR, "signals_export.json")
+PRICES_FILE    = os.path.join(WEB_DIR, "prices_export.json")
+EXTREME_FILE   = os.path.join(WEB_DIR, "extreme_alerts.json")
 
 ALL_ASSETS = {
     "stock": ["NVDA","TSLA","AAPL","AMD","AMZN","META","MSFT","GOOGL","PLTR",
@@ -172,6 +173,15 @@ def api_signals():
                 rows.append({"asset": asset, "name": ASSET_NAMES.get(asset, asset),
                              "asset_class": cls, "headline": None})
     return jsonify({"signals": rows, "updated": datetime.now(timezone.utc).isoformat()})
+
+@app.route("/api/extreme")
+def api_extreme():
+    try:
+        with open(EXTREME_FILE) as f:
+            alerts = json.load(f)
+    except Exception:
+        alerts = []
+    return jsonify({"alerts": alerts})
 
 @app.route("/api/news")
 def api_news():

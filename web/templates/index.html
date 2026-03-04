@@ -469,6 +469,48 @@
   </div>
 </nav>
 
+<!-- ══════════════════════════════════════════════════════════ BREAKING ALERTS -->
+<div id="breaking-section" style="display:none;padding:0 0 4px">
+  <div style="display:flex;align-items:center;gap:10px;padding:16px 20px 10px;max-width:1600px;margin:0 auto">
+    <span style="background:#ef4444;color:#fff;font-size:9px;font-weight:800;
+                 letter-spacing:2px;padding:3px 8px;border-radius:4px;
+                 animation:blink 1s step-end infinite">🚨 BREAKING</span>
+    <span style="color:#f97316;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase">
+      Extreme Events — Immediate Action Required
+    </span>
+  </div>
+  <div id="breaking-cards" style="display:flex;flex-wrap:wrap;gap:14px;padding:0 20px 16px;
+                                   max-width:1600px;margin:0 auto"></div>
+</div>
+<style>
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.breaking-card {
+  background: linear-gradient(135deg, #1a0505, #1f0a0a);
+  border: 1px solid rgba(239,68,68,.4);
+  border-left: 4px solid #ef4444;
+  border-radius: 12px;
+  padding: 16px 18px;
+  flex: 1 1 340px;
+  max-width: 520px;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.breaking-card:hover { border-color: #f97316; }
+.breaking-card.buy  { border-left-color: #00d084; border-color: rgba(0,208,132,.4); }
+.breaking-card.buy:hover { border-color: #00d084; }
+.breaking-card-action { font-size:22px; font-weight:900; font-family:monospace; margin:4px 0; }
+.breaking-card-action.buy  { color:#00d084; }
+.breaking-card-action.sell { color:#ef4444; }
+.breaking-card-reason { font-size:11px; color:#8898b3; margin-top:4px; line-height:1.5; }
+.breaking-card-headline { font-size:12px; color:#c8d3e0; margin-top:10px;
+                           padding-top:10px; border-top:1px solid rgba(99,130,255,.12);
+                           line-height:1.6; }
+.breaking-card-desc { font-size:11px; color:#5a6a84; margin-top:6px; line-height:1.5; }
+.breaking-card-meta { font-size:10px; color:#3d4f6b; margin-top:8px; }
+.breaking-expand { display:none; }
+.breaking-card.expanded .breaking-expand { display:block; }
+</style>
+
 <!-- ══════════════════════════════════════════════════════════ TOP SIGNALS -->
 <div class="top-signals-section">
   <div class="section-label"><i class="bi bi-fire" style="color:var(--gold)"></i> Top Signals Right Now</div>
@@ -1176,6 +1218,62 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 30000);
+
+/* ─── Breaking / Extreme alerts ──────────────────────────────── */
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60)   return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  return `${Math.floor(diff/3600)}h ago`;
+}
+
+async function loadExtremeAlerts() {
+  try {
+    const r = await fetch('/api/extreme');
+    const d = await r.json();
+    const alerts = d.alerts || [];
+    const section = document.getElementById('breaking-section');
+    const cards   = document.getElementById('breaking-cards');
+    if (!alerts.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    cards.innerHTML = '';
+    // Group by headline to avoid duplicate cards
+    const seen = new Set();
+    for (const a of alerts) {
+      const key = `${a.asset}|${(a.headline||'').slice(0,60)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const isBuy = a.action === 'BUY';
+      const color = isBuy ? '#00d084' : '#ef4444';
+      const card = document.createElement('div');
+      card.className = `breaking-card ${isBuy ? 'buy' : 'sell'}`;
+      card.innerHTML = `
+        <div style="font-size:9px;color:${color};text-transform:uppercase;letter-spacing:2px;font-weight:700">
+          🚨 ${a.category?.replace('_',' ').toUpperCase() || 'EXTREME EVENT'}
+        </div>
+        <div class="breaking-card-action ${isBuy?'buy':'sell'}">${a.action} ${a.asset}</div>
+        <div style="font-size:13px;color:#e8edf5;font-weight:600">${a.recommendation||''}</div>
+        <div class="breaking-card-reason">${a.reason||''}</div>
+        <div class="breaking-card-headline">${a.headline||''}</div>
+        <div class="breaking-expand">
+          ${a.description ? `<div class="breaking-card-desc">${a.description}</div>` : ''}
+          ${a.url ? `<a href="${a.url}" target="_blank"
+              style="display:inline-block;margin-top:8px;color:#00b4d8;font-size:11px;font-weight:600;">
+              Read full article →</a>` : ''}
+        </div>
+        <div class="breaking-card-meta">
+          Trigger: <b style="color:#f97316">${a.trigger||''}</b>
+          &nbsp;·&nbsp; ${timeAgo(a.detected_at)}
+          &nbsp;·&nbsp; <span style="color:#3d4f6b;cursor:pointer" onclick="this.closest('.breaking-card').classList.toggle('expanded');this.textContent=this.closest('.breaking-card').classList.contains('expanded')?'▲ collapse':'▼ full news'">▼ full news</span>
+        </div>`;
+      cards.appendChild(card);
+    }
+  } catch(e) { console.error('extreme alerts:', e); }
+}
+
+loadExtremeAlerts();
+setInterval(loadExtremeAlerts, 60000);
 </script>
 </body>
 </html>

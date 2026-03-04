@@ -62,7 +62,8 @@ def _sync_to_github():
             try:
                 repo = os.path.abspath(_REPO_ROOT)
                 subprocess.run(["git", "add", "seen_urls.json", "heartbeat.txt",
-                                "web/signals_export.json", "web/prices_export.json"],
+                                "web/signals_export.json", "web/prices_export.json",
+                                "web/extreme_alerts.json"],
                                cwd=repo, capture_output=True, timeout=15)
                 res = subprocess.run(
                     ["git", "commit", "-m", "chore: local poller sync [skip ci]"],
@@ -267,6 +268,53 @@ def process_article(article: dict):
             send_signal_email(alert_signals)
         except Exception as e:
             log.warning(f"Email alert error: {e}")
+
+    # ── Extreme / Breaking news detection ─────────────────────────────────────
+    try:
+        from extreme_detector import detect_extreme
+        extreme_alerts = detect_extreme(headline, description)
+        if extreme_alerts:
+            # Attach headline/url/time to each alert
+            detected_at = datetime.now(timezone.utc).isoformat()
+            for a in extreme_alerts:
+                a["headline"]    = headline
+                a["description"] = description
+                a["url"]         = url
+                a["detected_at"] = detected_at
+
+            # Append to extreme_alerts.json (keep last 50)
+            _ext_path = os.path.join(os.path.dirname(__file__), "extreme_alerts.json")
+            try:
+                import json as _json
+                existing = []
+                try:
+                    with open(_ext_path) as _f:
+                        existing = _json.load(_f)
+                except Exception:
+                    pass
+                combined = extreme_alerts + existing
+                # Deduplicate by headline+asset
+                seen_keys, deduped = set(), []
+                for item in combined:
+                    k = f"{item.get('asset')}|{item.get('headline','')[:80]}"
+                    if k not in seen_keys:
+                        seen_keys.add(k)
+                        deduped.append(item)
+                with open(_ext_path, "w") as _f:
+                    _json.dump(deduped[:50], _f)
+            except Exception as e:
+                log.warning(f"extreme_alerts.json write error: {e}")
+
+            # Send breaking email (with full article text)
+            try:
+                from emailer import send_extreme_alert, scrape_article, EMAIL_ENABLED
+                if EMAIL_ENABLED:
+                    article_text = scrape_article(url, max_chars=2000)
+                    send_extreme_alert(extreme_alerts, headline, description, url, article_text)
+            except Exception as e:
+                log.warning(f"Extreme email error: {e}")
+    except Exception as e:
+        log.warning(f"Extreme detection error: {e}")
 
 
 # ── Main poll loop (called by APScheduler every 1 minute) ─────────────────────
