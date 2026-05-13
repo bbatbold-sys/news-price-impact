@@ -1,0 +1,7 @@
+flask
+flask-cors
+apscheduler
+requests
+numpy
+xgboost
+gunicorn

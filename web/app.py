@@ -22,11 +22,13 @@ init_db()
 
 # ── Load models & market data ─────────────────────────────────────────────────
 import predictor
-MARKET_PATH = os.path.join(os.path.dirname(__file__), "..",
-              r"C:\Users\batbo\OneDrive\Desktop\Market_Data_5Years.xlsx"
-              if os.path.exists(r"C:\Users\batbo\OneDrive\Desktop\Market_Data_5Years.xlsx")
-              else "Market_Data_5Years.xlsx")
-predictor.load_market(r"C:\Users\batbo\OneDrive\Desktop\Market_Data_5Years.xlsx")
+_MARKET_CANDIDATES = [
+    r"C:\Users\batbo\Desktop\Market_Data_5Years.xlsx",
+    r"C:\Users\batbo\OneDrive\Desktop\Market_Data_5Years.xlsx",
+    r"C:\Users\batbo\Downloads\Market_Data_5Years.xlsx",
+]
+MARKET_PATH = next((p for p in _MARKET_CANDIDATES if os.path.exists(p)), _MARKET_CANDIDATES[0])
+predictor.load_market(MARKET_PATH)
 
 # ── All assets we track ───────────────────────────────────────────────────────
 ALL_ASSETS = {

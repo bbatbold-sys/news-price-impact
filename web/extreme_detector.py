@@ -122,7 +122,13 @@ def detect_extreme(headline: str, description: str = "") -> list[dict]:
                 })
 
     # ── 3. Geopolitical crisis → BUY safe havens ─────────────
-    geo_hit = next((t for t in GEOPOLITICAL_TRIGGERS if t in text), None)
+    # Use word boundaries to avoid false positives (e.g. "award" contains "war")
+    geo_hit = None
+    for t in GEOPOLITICAL_TRIGGERS:
+        pattern = r'\b' + re.escape(t) + r'\b'
+        if re.search(pattern, text):
+            geo_hit = t
+            break
     if not geo_hit:
         if re.search(r'between \w[\w\s]{2,15} and \w[\w\s]{2,15}', text):
             geo_hit = "conflict"

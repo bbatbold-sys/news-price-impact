@@ -25,3 +25,21 @@ web/public_url.txt
 .DS_Store
 Thumbs.db
 cloudflared.exe
+
+# Runtime / logs
+dashboard.log
+pulse/news_live.json
+pulse/__pycache__/
+*.log
+
+# Large screenshot dumps
+fail_*.png
+login_*.png
+portfolio_page.png
+sim_page.png
+step2.png
+trade_loaded.png
+trade_page.html
+try_trade_*.png
+web/after_*.png
+web/trade_COIN.png
